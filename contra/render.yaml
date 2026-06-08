@@ -1,9 +1,10 @@
 services:
   - type: web
     name: contra-api
-    runtime: python
+    env: python
     region: singapore
     plan: free
+    pythonVersion: "3.11.9"
     buildCommand: pip install -e ".[gate,api]"
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     envVars:

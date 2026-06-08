@@ -1,4 +1,5 @@
-# Render uses this file to detect the Python runtime.
-# Actual dependencies are installed via: pip install -e ".[gate,api]"
-# (see pyproject.toml for the full dependency list)
--e ".[gate,api]"
+# Render detects this file to confirm it's a Python project.
+# Dependencies are installed via pyproject.toml using the build command:
+#   pip install -e ".[gate,api]"
+fastapi>=0.110
+uvicorn[standard]>=0.29
