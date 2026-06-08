@@ -27,6 +27,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "selenium>=4.20",
     "webdriver-manager>=4.0",
+    "undetected-chromedriver>=3.5",
 ]
 
 [project.optional-dependencies]

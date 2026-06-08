@@ -288,6 +288,7 @@ def compile_search_context(response: SearchResponse, max_chars: int = 4000) -> s
     """
     Flatten a SearchResponse into a compact text block for LLM prompting.
     Truncates raw_content to avoid context-length issues.
+    Top-3 results get a larger content window (600 chars); the rest get 350.
     """
     lines: List[str] = [f"Search query: {response.query}\n"]
     for i, r in enumerate(response.results, 1):
@@ -295,8 +296,9 @@ def compile_search_context(response: SearchResponse, max_chars: int = 4000) -> s
         lines.append(f"    URL: {r.url}")
         lines.append(f"    {r.snippet}")
         if r.raw_content:
-            preview = r.raw_content[:350].strip()
-            if len(r.raw_content) > 350:
+            content_limit = 600 if i <= 3 else 350
+            preview = r.raw_content[:content_limit].strip()
+            if len(r.raw_content) > content_limit:
                 preview += "..."
             lines.append(f"    Content: {preview}")
         lines.append("")

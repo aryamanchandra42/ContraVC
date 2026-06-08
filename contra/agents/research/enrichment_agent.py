@@ -183,7 +183,7 @@ def _enrich_single_allocator(
         "error": None,
     }
 
-    # --- Step 1: web search — run 3 targeted queries for full LP profile ---
+    # --- Step 1: web search — run all targeted queries for full LP profile ---
     search_context = ""
     source_urls: List[str] = []
     try:
@@ -192,28 +192,55 @@ def _enrich_single_allocator(
         all_results = []
         for query in queries:
             try:
-                resp = search_provider.search(query, max_results=4)
+                resp = search_provider.search(query, max_results=6)
                 all_results.extend(resp.results)
             except (SearchUnavailable, FetchError):
                 pass
 
-        # Deduplicate by URL, keep top 10 by score
+        # Deduplicate by URL, keep top 15 by score
         seen_urls: set = set()
         unique_results = []
         for r in sorted(all_results, key=lambda x: x.score, reverse=True):
             if r.url not in seen_urls:
                 seen_urls.add(r.url)
                 unique_results.append(r)
-            if len(unique_results) >= 10:
+            if len(unique_results) >= 15:
                 break
 
+        # Deep-fetch full page content for top 3 results that lack raw_content
         if unique_results:
+            for r in unique_results[:3]:
+                if not r.raw_content:
+                    try:
+                        r.raw_content = search_provider.fetch(r.url)
+                        logger.debug("Deep-fetched: %s", r.url)
+                    except (FetchError, Exception) as fetch_exc:
+                        logger.debug("Deep-fetch skipped for '%s': %s", r.url, fetch_exc)
+
+        if unique_results:
+            # Inject PitchBook profile at the top if cookies are available
+            try:
+                from agents.research.pitchbook_fetch import cookies_available, pb_inject_result
+                if cookies_available():
+                    pb_url = next(
+                        (r.url for r in unique_results if "pitchbook.com/profiles/" in r.url),
+                        None,
+                    )
+                    pb_result = pb_inject_result(canonical_name, pb_url=pb_url)
+                    if pb_result:
+                        unique_results = [pb_result] + [
+                            r for r in unique_results if "pitchbook.com" not in r.url
+                        ]
+                        logger.debug("PitchBook profile injected for enrichment of '%s'", canonical_name)
+            except Exception as pb_exc:
+                logger.debug("PitchBook enrichment injection skipped: %s", pb_exc)
+
             from agents.research.web_search import SearchResponse, compile_search_context
             merged = SearchResponse(
-                query=f"[3-query research] {canonical_name}",
+                query=f"[multi-query research] {canonical_name}",
                 results=unique_results,
             )
-            search_context = compile_search_context(merged, max_chars=2500)
+            search_context = compile_search_context(merged, max_chars=4000)
             source_urls = [r.url for r in unique_results]
             stats["searched"] = True
 
@@ -262,7 +289,7 @@ Fill the schema:
         "canonical_name": canonical_name,
         "enrichment_result": result.model_dump(),
         "source_urls": source_urls,
-        "queries_run": 3,
+        "queries_run": 6,
     }
     source_record_id = _write_research_raw_record(con, allocator_id, 0, enrichment_payload)
 

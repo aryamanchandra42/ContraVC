@@ -179,6 +179,68 @@ def nfx_scrape_cmd(
 
 
 # ---------------------------------------------------------------------------
+# contra pitchbook-scrape
+# ---------------------------------------------------------------------------
+
+@app.command("pitchbook-scrape")
+def pitchbook_scrape_cmd(
+    max_lps: int = typer.Option(200, "--max", help="Stop after N LPs collected from PitchBook"),
+    headless: bool = typer.Option(True, "--headless/--no-headless", help="Run Chrome headlessly (default) or show window"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Collect + dedup but skip gate calls and CRM writes"),
+    delay_ms: int = typer.Option(2000, "--delay-ms", help="Pause between gate calls in ms (throttle API usage)"),
+    sso: bool = typer.Option(False, "--sso", help="Sign in with SSO (automated IESE/Okta/Azure AD flow)"),
+    brave: bool = typer.Option(False, "--brave", help="Use existing Brave browser profile (already logged into PitchBook — fastest option, no credentials needed)"),
+    connect_port: Optional[int] = typer.Option(None, "--connect-port", help="Attach to a running Brave/Chrome on this CDP port (launch browser with --remote-debugging-port=PORT first)"),
+    clear_session: bool = typer.Option(False, "--clear-session", help="Delete saved session cookies and force a fresh login"),
+) -> None:
+    """Scrape PitchBook LP search and save qualified ones to CRM via LP Gate.
+
+    Authentication options (pick one):
+
+      --brave         Use Brave browser with its existing profile — already logged in,
+                      no credentials needed. Close Brave before running.
+
+      --connect-port  Attach to a running Brave/Chrome that was launched with
+                      --remote-debugging-port=PORT. Brave stays open.
+
+      --sso           Automated IESE / institutional SSO flow via browser window.
+                      Requires PITCHBOOK_EMAIL + PITCHBOOK_PASSWORD in .env.
+
+      (default)       Standard email + password login via headless Chrome.
+                      Requires PITCHBOOK_EMAIL + PITCHBOOK_PASSWORD in .env.
+
+    After any successful login the session is cached; subsequent runs skip login.
+    Use --clear-session to force a fresh authentication.
+
+    Uses a 3-layer dedup: exact CRM match -> fuzzy allocator match -> checkpoint.
+    Investors that pass the Gate (YES/REVIEW) are persisted to contra.duckdb.
+    Resume-safe: a checkpoint file tracks processed names across runs.
+    """
+    from agents.ingestion.pitchbook_scraper import run_scrape
+
+    try:
+        stats = run_scrape(
+            max_lps=max_lps,
+            headless=headless,
+            dry_run=dry_run,
+            delay_ms=delay_ms,
+            use_sso=sso,
+            clear_session=clear_session,
+            use_brave=brave,
+            connect_port=connect_port,
+        )
+    except RuntimeError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    saved = stats.get("yes", 0) + stats.get("review", 0)
+    if saved:
+        rprint(f"\n[green]{saved} LP(s) saved to CRM (YES: {stats['yes']}  REVIEW: {stats['review']})[/green]")
+    else:
+        rprint("\n[dim]No new LPs qualified for CRM in this run.[/dim]")
+
+
+# ---------------------------------------------------------------------------
 # contra enrich
 # ---------------------------------------------------------------------------
 

@@ -18,11 +18,53 @@ from agents.research.web_search import (
 logger = logging.getLogger(__name__)
 
 
-def search_lp(name: str, max_chars: int = 2800) -> Tuple[str, List[str]]:
+def _inject_pitchbook(
+    lp_name: str,
+    results: List[SearchResult],
+) -> List[SearchResult]:
+    """
+    If PitchBook session cookies are available, try to fetch the LP's profile.
+
+    Strategy (in priority order):
+    1. If a pitchbook.com URL already appeared in Tavily results, fetch it
+       authenticated to get the full page (not just the login redirect).
+    2. Otherwise search PitchBook by LP name for the profile.
+
+    The fetched result is inserted at position 0 with score=2.0 so the LLM
+    sees PitchBook's structured data (AUM, LP type, recent funds) first.
+    """
+    try:
+        from agents.research.pitchbook_fetch import cookies_available, pb_inject_result
+
+        if not cookies_available():
+            return results
+
+        # Check if any Tavily result already points to a PitchBook profile URL
+        pb_url = None
+        for r in results:
+            if "pitchbook.com/profiles/" in r.url:
+                pb_url = r.url
+                break
+
+        pb_result = pb_inject_result(lp_name, pb_url=pb_url)
+        if pb_result:
+            # Remove any existing (un-authed) PitchBook entry so we don't duplicate
+            filtered = [r for r in results if "pitchbook.com" not in r.url]
+            logger.debug("PitchBook profile injected for '%s'", lp_name)
+            return [pb_result] + filtered
+
+    except Exception as exc:
+        logger.debug("PitchBook injection skipped for '%s': %s", lp_name, exc)
+
+    return results
+
+
+def search_lp(name: str, max_chars: int = 4000) -> Tuple[str, List[str]]:
     """Run the appetite-oriented fit queries; return (context_text, source_urls).
 
-    Kept under ~3k chars so the full gate prompt fits Groq free-tier context limits
-    (llama-3.1-8b-instant TPM cap ~6k tokens including system + schema).
+    Single-LP gate passes max_chars=4000 so all 10 searched URLs' snippets reach
+    the LLM (~1000 tokens, well within Groq's 131K context window).
+    Batch gate passes max_chars=1200 to stay under free-tier TPM limits.
     """
     queries = build_lp_fit_queries(name)
     try:
@@ -35,7 +77,7 @@ def search_lp(name: str, max_chars: int = 2800) -> Tuple[str, List[str]]:
     all_results = []
     for query in queries:
         try:
-            resp = provider.search(query, max_results=3)
+            resp = provider.search(query, max_results=5)
             all_results.extend(resp.results)
         except (SearchUnavailable, FetchError):
             pass
@@ -46,11 +88,13 @@ def search_lp(name: str, max_chars: int = 2800) -> Tuple[str, List[str]]:
         if r.url not in seen:
             seen.add(r.url)
             unique.append(r)
-        if len(unique) >= 7:
+        if len(unique) >= 10:
             break
 
     if not unique:
         return "(no web results retrieved)", []
+
+    unique = _inject_pitchbook(name, unique)
 
     merged = SearchResponse(query=f"[gate] {name}", results=unique)
     urls = [r.url for r in unique]
@@ -60,7 +104,7 @@ def search_lp(name: str, max_chars: int = 2800) -> Tuple[str, List[str]]:
 def search_lp_with_nfx(
     name: str,
     nfx_url: Optional[str] = None,
-    max_chars: int = 2800,
+    max_chars: int = 4000,
 ) -> Tuple[str, List[str]]:
     """
     NFX-aware gate research.
@@ -85,7 +129,7 @@ def search_lp_with_nfx(
     # Standard queries
     for query in queries:
         try:
-            resp = provider.search(query, max_results=3)
+            resp = provider.search(query, max_results=5)
             all_results.extend(resp.results)
         except (SearchUnavailable, FetchError):
             pass
@@ -114,11 +158,13 @@ def search_lp_with_nfx(
         if r.url not in seen:
             seen.add(r.url)
             unique.append(r)
-        if len(unique) >= 7:
+        if len(unique) >= 10:
             break
 
     if not unique:
         return "(no web results retrieved)", []
+
+    unique = _inject_pitchbook(name, unique)
 
     merged = SearchResponse(query=f"[gate/nfx] {name}", results=unique)
     urls = [r.url for r in unique]

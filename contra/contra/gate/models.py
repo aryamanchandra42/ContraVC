@@ -147,6 +147,9 @@ class GateResult(BaseModel):
     # Inferred allocator appetite (None for hard-block / no-LLM paths)
     appetite: Optional[AppetiteProfile] = None
 
+    # All URLs actually fetched during web research (shown in UI regardless of LLM citation)
+    source_urls: List[str] = Field(default_factory=list)
+
     # Analyst-provided context (grows through chat)
     analyst_facts: List[str] = Field(default_factory=list)
 

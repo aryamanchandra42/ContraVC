@@ -90,13 +90,14 @@ def run_gate(
         return result
 
     # ----- Web research + drill-down ----------------------------------------
-    # compact_web=True cuts web context from 2800→1200 chars (~40% fewer tokens)
-    # used by the batch runner to stay under Groq free-tier TPD limits
-    max_chars = 1200 if compact_web else 2800
+    # compact_web=True cuts web context to 1200 chars (~40% fewer tokens)
+    # used by the batch runner to stay under Groq free-tier TPD limits.
+    # Single-LP gate uses 4000 chars so all 10 searched URLs' snippets reach the LLM.
+    max_chars = 1200 if compact_web else 4000
     if nfx_url:
-        web_context, _urls = search_lp_with_nfx(name, nfx_url=nfx_url, max_chars=max_chars)
+        web_context, source_urls = search_lp_with_nfx(name, nfx_url=nfx_url, max_chars=max_chars)
     else:
-        web_context, _urls = search_lp(name, max_chars=max_chars)
+        web_context, source_urls = search_lp(name, max_chars=max_chars)
     drill_results = run_drill_down(con, brief)
     allocation_evidence = build_allocation_evidence(brief)
 
@@ -157,6 +158,7 @@ def run_gate(
         summary=explanation.summary,
         db_queries_used=db_queries,
         appetite=appetite,
+        source_urls=source_urls,
         analyst_facts=analyst_facts,
     )
 
