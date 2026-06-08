@@ -6,8 +6,8 @@ services:
     plan: free
     rootDir: contra
     pythonVersion: "3.11.9"
-    buildCommand: pip install -e ".[gate,api]"
-    startCommand: python -m uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: poetry install -E gate -E api
+    startCommand: poetry run python -m uvicorn api.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PULSE_LLM_PROVIDER
         value: groq
