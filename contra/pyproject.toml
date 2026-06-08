@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contra"
+version = "0.1.0"
+description = "Contra — LP intelligence backend + CRM gate"
+requires-python = ">=3.9"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pydantic>=2.0",
+    "duckdb>=0.10",
+    "networkx>=3.2",
+    "openpyxl>=3.1",
+    "python-docx>=1.1",
+    "python-pptx>=0.6",
+    "pdfplumber>=0.10",
+    "rapidfuzz>=3.6",
+    "typer>=0.12",
+    "structlog>=24.0",
+    "pyarrow>=14.0",
+    "pyyaml>=6.0",
+    "python-dateutil>=2.8",
+    "rich>=13.0",
+    "python-dotenv>=1.0",
+    "selenium>=4.20",
+    "webdriver-manager>=4.0",
+]
+
+[project.optional-dependencies]
+gate = [
+    "instructor>=1.3",
+    "anthropic>=0.25",
+    "openai>=1.30",
+    "google-generativeai>=0.7",
+    "groq>=0.9",
+    "tavily-python>=0.3",
+]
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+contra = "contra.__main__:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["contra*", "agents*", "schema*"]
+
+[tool.pyright]
+pythonVersion = "3.9"
+typeCheckingMode = "basic"

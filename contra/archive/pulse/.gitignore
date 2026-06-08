@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+.installed.cfg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb~
+
+# Data artifacts (large, generated)
+processed_data/
+graphs/*.gpickle
+graphs/*.parquet
+graphs/*.graphml
+
+# Keep review queue stubs
+!processed_data/review_queues/.gitkeep
+!processed_data/ontology_cache/.gitkeep
+
+# Logs
+logs/
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+
+# Environment / secrets
+.env
+.env.*
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

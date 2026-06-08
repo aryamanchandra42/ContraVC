@@ -1,0 +1,92 @@
+---
+description: Ontology extractor rules — pluggable interface, cache contract, LLM discipline
+globs: ["agents/ontology/**", "agents/ingestion/**", "prompts/**"]
+alwaysApply: true
+---
+
+# PULSE Extractor Rules
+
+## The Deterministic-First Principle
+
+The full ontology extraction pipeline MUST be operational without any LLM:
+
+1. **Structured-deterministic** (xlsx): pandas + regex → no LLM dependency
+2. **Heuristic-unstructured** (pdf/docx): keyword dictionaries from `prompts/heuristic_keywords.yaml` → no LLM dependency
+3. **Ontology tagging**: normalize against `ontology_terms` → no LLM dependency
+4. **LLM enrichment**: optional, gated by `PULSE_LLM_PROVIDER` env var
+
+If you write code that requires an LLM to produce *any* output, you have violated this rule.
+
+## The Extractor Protocol
+
+All extractors — heuristic, LLM-backed, or otherwise — MUST implement this interface:
+
+```python
+class OntologyExtractor(Protocol):
+    name: str           # unique identifier, used in cache key
+    version: str        # semver string, used in cache key
+    deterministic: bool # True = same input → byte-identical output; False = LLM-backed
+
+    def extract(self, doc: ParsedDocument, ctx: ExtractionContext) -> ExtractionResult: ...
+```
+
+Concrete LLM extractors (`OllamaExtractor`, `OpenAIExtractor`, `AnthropicExtractor`) are **stub-only in v0** — they implement the interface but raise `NotImplementedError`. Do not implement them until Phase 5.
+
+## Cache Contract
+
+Every extractor result MUST be cached at:
+```
+processed_data/ontology_cache/{cache_key}.json
+```
+
+Cache key = SHA-256 of:
+- `extractor.name + extractor.version`
+- `doc.content_hash`
+- `prompt_hash` (for LLM extractors; hash of the prompt template)
+
+Rules:
+- If the cache file exists and is valid JSON, return it without re-running the extractor
+- Cache files are NEVER invalidated by re-running the pipeline — only by deleting them
+- For deterministic extractors: same input MUST produce byte-identical output AND byte-identical cache file
+- LLM-backed extractors MUST set `deterministic=False` and record the model name + temperature in the cache metadata
+
+## Evidence Emission
+
+Every extractor that discovers a relationship MUST emit a `relationship_evidence` row:
+
+```python
+RelationshipEvidence(
+    edge_id=...,
+    source_record_id=...,          # from entities_raw
+    evidence_type="heuristic_keyword_match",  # or "structured_xlsx_match", "llm_enriched"
+    evidence_strength=0.65,        # extractor's self-reported certainty ∈ [0,1]
+    confidence=0.65,
+    timestamp=doc.ingested_at,
+    provenance_pointer={
+        "source_file": doc.source_file,
+        "source_offset": doc.source_offset,
+        "row_id": doc.row_id,
+    },
+)
+```
+
+Do not write a relationship without evidence. This is a schema-level invariant.
+
+## Keyword Dictionary Format
+
+`prompts/heuristic_keywords.yaml` MUST follow this structure:
+
+```yaml
+version: "1.0"
+categories:
+  allocator_archetypes:
+    - term: "family office"
+      patterns: ["family office", "fam office", "FO", "single family"]
+      confidence: 0.85
+  em_appetite:
+    - term: "emerging markets"
+      patterns: ["emerging market", "EM", "Asia ex-Japan", "frontier"]
+      confidence: 0.75
+```
+
+Do not use regex patterns that are not anchored or that could match spuriously across context.

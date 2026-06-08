@@ -1,0 +1,34 @@
+﻿FILE=LP_Scoping SHEET=Overview
+COLS: ['MyAsiaVC ΓÇö LP Scoping Document v1.0', 'Unnamed: 1', 'Unnamed: 2']
+FILE=LP_Scoping SHEET=Core Filters
+COLS: ['Core Filters ΓÇö All Must Be TRUE to Qualify', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4']
+FILE=LP_Scoping SHEET=Exclusion Filters
+COLS: ['Exclusion Filters ΓÇö Any Match = Immediate Reject', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4']
+FILE=LP_Scoping SHEET=Soft Filters
+COLS: ['Soft Filters ΓÇö Conviction Boosters (Inform Scoring, Not Pass/Fail)', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4']
+FILE=LP_Scoping SHEET=LP Type Priority
+COLS: ['LP Type Priority Tiers', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4', 'Unnamed: 5']
+FILE=LP_Scoping SHEET=AQVC Lessons
+COLS: ['AQVC Campaign ΓÇö Rejection Analysis & Lessons Learned', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3']
+FILE=ICP_4.0 SHEET=IIP
+COLS: ['Ideal Investor Profile']
+FILE=ICP_4.0 SHEET=Blacklist
+COLS: ['Blacklist', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4']
+FILE=ICP_4.0 SHEET=Proxy FundsCompanies
+COLS: ['Proxy Funds/Companies', 'Unnamed: 1']
+FILE=ICP_4.0 SHEET=Prospects_m1
+COLS: ['Prospects', 'Unnamed: 1', 'Unnamed: 2']
+FILE=ICP_4.0 SHEET=Prospects_m2
+COLS: ['Prospects', 'Unnamed: 1', 'Unnamed: 2']
+FILE=ICP_4.0 SHEET=Prospects_m3
+COLS: ['Prospects', 'Unnamed: 1', 'Unnamed: 2']
+FILE=ICP_4.0 SHEET=m3 Blurbs
+COLS: ['Nr', 'Investor Name', 'Website', 'Primary Contact Title', 'Primary Contact Full Name', 'Personalized Blurb/Introduction tag (Longer)', 'Personalized Blurb/Introduction tag (Concise)', 'First Name', 'Last Name', 'Email', 'Linkedin']
+FILE=ICP_4.0 SHEET=Prospects_Hong Kong
+COLS: ['Unnamed: 0', 'Unnamed: 1', 'Unnamed: 2']
+FILE=ICP_4.0 SHEET=Prospects_London
+COLS: ['Unnamed: 0', 'Unnamed: 1', 'Unnamed: 2']
+FILE=ICP_4.0 SHEET=Client prospect pool
+COLS: ['Client Prospect Pool', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4', 'Unnamed: 5', 'Unnamed: 6', 'Unnamed: 7', 'Unnamed: 8', 'Unnamed: 9', 'Unnamed: 10', 'Unnamed: 11', 'Unnamed: 12', 'Unnamed: 13', 'Unnamed: 14', 'Unnamed: 15']
+FILE=Rating SHEET=Fund_Rating_Guide
+COLS: ['The ultimate fund evaluation questionaire from the perspective of an LP by AQVC', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4', 'Unnamed: 5']

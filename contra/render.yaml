@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: contra-api
+    runtime: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -e ".[gate,api]"
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PULSE_LLM_PROVIDER
+        value: groq
+      - key: PULSE_LLM_AUTO_SWITCH
+        value: "true"
+      - key: PULSE_SEARCH_PROVIDER
+        value: tavily
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_API_KEY_2
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

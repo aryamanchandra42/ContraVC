@@ -1,0 +1,53 @@
+---
+description: Core PULSE architectural doctrine — applies to every file in this repo
+globs: ["**/*.py", "**/*.sql", "**/*.yaml", "**/*.yml", "**/*.toml"]
+alwaysApply: true
+---
+
+# PULSE Architecture Doctrine
+
+## What PULSE Is
+
+PULSE is a probabilistic reasoning system, relationship graph engine, institutional memory system, and weak-signal inference engine. It operates on private-market data characterized by information asymmetry, hidden relationships, and fragmented allocator data.
+
+## What PULSE Is NOT
+
+- A CRM or spreadsheet wrapper
+- A chatbot or SaaS dashboard
+- A CRUD application
+- A generic data pipeline
+
+## Foundational Principle: Database = Memory. Inference = Intelligence.
+
+**DO:**
+- Design schemas to capture provenance, weak signals, and relationships as first-class data
+- Keep scoring and probabilistic inference in a separate layer above storage
+- Treat relationships as data (they are persisted, not derived ad-hoc)
+- Model incomplete and contradictory information explicitly
+
+**DO NOT:**
+- Write scoring logic into schema definitions or ingestion adapters
+- Collapse relationship evidence into inline JSON blobs that can't be queried
+- Store derived values (confidence, decay score) without a deterministic derivation path
+- Build frontend code, API servers, or dashboards in Phase 1-4
+
+## Execution Philosophy
+
+- **Modular**: every pipeline stage is a separate, independently runnable unit
+- **Typed**: all data contracts use Pydantic v2 models
+- **Idempotent**: re-running any stage with the same inputs produces byte-identical outputs
+- **Graph-native**: relationships are first-class; think in nodes and edges, not just tables
+- **Composable**: stages are wired by the CLI orchestrator, not by internal imports between agents
+
+## Phase Boundaries
+
+Current phase: **1-4** (Foundation). The inference engine, probabilistic scoring, and ML layers are Phase 5-6. Do not implement them now.
+
+Phase 1-4 scope:
+1. Ingestion → 2. Normalization → 3. Ontology Extraction → 4. Relationship Graph
+
+Out of scope for this phase:
+- Allocator scoring models
+- Embedding/vector search (pgvector reserved, not used)
+- Automation/scheduling
+- External API integrations beyond optional research enrichment

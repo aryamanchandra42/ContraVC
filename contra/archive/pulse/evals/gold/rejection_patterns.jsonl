@@ -1,0 +1,3 @@
+{"input_text": "Passed — fund is too small for our minimum commitment threshold of $50M.", "expected_terms": [{"term": "size_constraint", "category": "rejection_pattern"}], "confidence_floor": 0.75}
+{"input_text": "Not investing in Southeast Asia — geographic restriction from board policy.", "expected_terms": [{"term": "geography_constraint", "category": "rejection_pattern"}], "confidence_floor": 0.75}
+{"input_text": "IC sign-off process takes 6-12 months, not suitable for this timeline.", "expected_terms": [{"term": "committee_constraint", "category": "committee_constraint"}, {"term": "long_approval_cycle", "category": "committee_constraint"}], "confidence_floor": 0.70}

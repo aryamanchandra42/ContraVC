@@ -1,0 +1,4 @@
+# Render uses this file to detect the Python runtime.
+# Actual dependencies are installed via: pip install -e ".[gate,api]"
+# (see pyproject.toml for the full dependency list)
+-e ".[gate,api]"

@@ -1,0 +1,24 @@
+# Phantombuster / Sales Navigator → PULSE ingestion workflow
+version: "1.0"
+
+workflow:
+  - "Run Sales Navigator search aligned with ICP criteria."
+  - "Export via Phantombuster Sales Navigator Search Export → CSV."
+  - "Save as raw_data/linkedin_YYYYMMDD_<label>.csv"
+  - "Run: pulse ingest → pulse normalize → pulse score → pulse derive"
+  - "LinkedIn rows fuzzy-match existing allocators (threshold 88)."
+
+supported_phantoms:
+  - name: "Sales Navigator Search Export"
+    output_fields: ["profileUrl", "firstName", "lastName", "companyName", "title", "location"]
+  - name: "Sales Navigator Profile Scraper"
+    output_fields: ["headline", "summary", "industry", "email"]
+  - name: "Search to Emails"
+    output_fields: ["professionalEmail", "email"]
+
+do_not_use:
+  - "Connection request / outreach automations — out of PULSE scope; account risk."
+
+filename_patterns:
+  - "linkedin_*.csv"
+  - "phantombuster_*.csv"

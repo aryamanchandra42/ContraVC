@@ -1,0 +1,72 @@
+---
+description: Schema design rules — Pydantic models, DDL, and column invariants
+globs: ["schema/**", "agents/**/*.py"]
+alwaysApply: true
+---
+
+# PULSE Schema Rules
+
+## The Three-Artifact Invariant
+
+Every data entity MUST be represented in three lockstep artifacts:
+1. `schema/models.py` — Pydantic v2 model (runtime validation)
+2. `schema/duckdb.sql` — DuckDB DDL (local iteration)
+3. `schema/postgres.sql` — Postgres/Supabase DDL (production-portable)
+
+If you add a column to one, add it to all three. If you add a table, add the Pydantic model too.
+
+## Required Provenance Columns
+
+Every table that captures a normalized or canonical row MUST include:
+
+```python
+source_record_id: str          # deterministic hash → entities_raw.source_record_id
+source_file: str               # path relative to raw_data/
+ingested_at: datetime          # pipeline ingestion timestamp
+content_hash: str              # SHA-256 of the source row/chunk
+```
+
+Exception: `entities_raw` and `pipeline_runs` define their own provenance differently (see those table definitions).
+
+## Uncertainty Columns (Derived, Never Hand-Written)
+
+Every probabilistic table (`relationships`, `signals`, `ontology_terms`, `rejections`, `entity_aliases`) carries these columns. They are populated ONLY by `pulse derive` — never by hand, never by ingestion adapters, never by normalizers:
+
+```python
+confidence: float              # ∈ [0,1]; computed by aggregator.py
+evidence_count: int            # COUNT of relationship_evidence rows
+contradiction_score: float     # ∈ [0,1]; contradicting / observing sources
+source_agreement_score: float  # ∈ [0,1]; agreeing / observing sources
+```
+
+## Temporal Columns (Derived, Never Hand-Written)
+
+```python
+effective_date: Optional[date]     # when this assertion became active
+first_seen: datetime               # first evidence timestamp
+last_seen: datetime                # most recent evidence timestamp
+last_active: datetime              # max(evidence timestamps, interaction timestamps)
+relationship_decay_score: float    # exp(-Δt / half_life); computed by temporal.py
+temporal_confidence: float         # confidence × relationship_decay_score
+```
+
+## Scoring Columns (Reserved, Null in Phase 1-4)
+
+`allocators.inferred_scores` and `allocators.confidences` are `jsonb`/`JSON` columns that MUST remain null in Phase 1-4. Do not populate them. They are consumed by the Phase 5-6 inference layer.
+
+## Pydantic Conventions
+
+- Use `pydantic.BaseModel` with `model_config = ConfigDict(extra="forbid")`
+- All UUID fields: `uuid.UUID`
+- All datetime fields: `datetime` with `timezone=True`
+- All float fields representing probabilities: annotated with `Annotated[float, Field(ge=0.0, le=1.0)]`
+- Use `Optional[X]` only for columns that are legitimately nullable; add a comment explaining why
+
+## DuckDB ↔ Postgres Portability
+
+Keep DDL syntax compatible with both engines:
+- Use `UUID` type (both support it)
+- Use `TIMESTAMP WITH TIME ZONE` (DuckDB: `TIMESTAMPTZ`; alias both)
+- Use `DOUBLE` for floats (not `REAL`)
+- Use `JSON` for structured blobs (DuckDB does not support `JSONB` natively — use `JSON` in duckdb.sql, `JSONB` in postgres.sql)
+- Do not use Postgres-only extensions (like `GIN` indexes) in duckdb.sql

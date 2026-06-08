@@ -1,0 +1,30 @@
+# PULSE ICP Calibration — auto-tuned tier thresholds vs ContraVC benchmark
+# Written by `pulse calibrate`. Do not hand-edit winning_thresholds after auto-tune.
+version: "1.0"
+icp_version: "4.1"
+ranking_source: "contravc_top200"
+
+search:
+  tier_1_fit_min:
+    min: 0.50
+    max: 0.75
+    step: 0.025
+  tier_2_fit_min:
+    min: 0.25
+    max: 0.55
+    step: 0.025
+  require_client_approved_for_tier_1: true
+
+objective_weights:
+  recall_at_50: 0.5
+  tier_agreement_top100: 0.3
+  kendall_tau: 0.2
+
+min_overlap_for_autotune: 10
+
+# Populated by pulse calibrate
+winning_thresholds:
+  TIER_1_FIT_MIN: 0.60
+  TIER_2_FIT_MIN: 0.38
+
+last_run: null

@@ -1,0 +1,49 @@
+# PULSE Uncertainty Parameters
+# These values control all deterministic derivation in agents/uncertainty/.
+# Changing these values changes derived columns for ALL edges on the next `pulse derive` run.
+# Document any change in docs/decision_archive.md.
+version: "1.0"
+
+temporal:
+  # Number of days after which relationship_decay_score = exp(-1) ≈ 0.37
+  # A relationship last active exactly half_life_days ago has decay score ~0.37.
+  # Set to 365 for annual decay (most LP relationships; suitable for v0).
+  half_life_days: 365
+
+confidence:
+  # Combinator for merging evidence strengths.
+  # "noisy_or": 1 - PRODUCT(1 - s_i * c_i)  (default, most principled for independent signals)
+  # "min":       min(s_i * c_i)              (conservative; use if evidence is highly correlated)
+  # "mean":      mean(s_i * c_i)             (neutral; use if evidence is uniformly distributed)
+  combinator: "noisy_or"
+
+  # Evidence strength floor: evidence_strength values below this are treated as 0.
+  # Prevents near-zero evidence items from contributing spurious confidence.
+  min_evidence_strength: 0.05
+
+source_agreement:
+  # Sources with evidence_type matching these prefixes count as "contradicting"
+  contradicting_evidence_prefixes:
+    - "contradicts_"
+
+  # Sources with evidence_type matching these prefixes count as "agreeing"
+  agreeing_evidence_prefixes:
+    - "structured_xlsx_match"
+    - "heuristic_keyword_match"
+    - "cross_file_match"
+    - "llm_enriched"
+    - "co_investment_pattern"
+    - "graph_path_inference"
+    - "interaction_recurrence"
+    - "signal_heuristic"
+    - "signal_investment_pattern"
+    - "signal_graph_metric"
+    - "signal_icp_mirror"
+    - "signal_connectivity"
+
+review_queue:
+  # Thresholds below which a derived value is surfaced for human review
+  low_confidence_threshold: 0.40
+  high_contradiction_threshold: 0.30
+  low_source_agreement_threshold: 0.50
+  min_evidence_count_for_auto_accept: 3

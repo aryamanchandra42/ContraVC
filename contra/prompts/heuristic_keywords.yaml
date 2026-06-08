@@ -1,0 +1,255 @@
+# PULSE Heuristic Keyword Dictionary
+# Drives HeuristicExtractor in agents/ontology/heuristic.py.
+# Derived from substrate audit of the 6 source files.
+# Version-pinned: document changes in docs/decision_archive.md.
+version: "1.0"
+
+categories:
+
+  allocator_archetypes:
+    - term: "family_office"
+      canonical_label: "Family Office"
+      category: "allocator_archetype"
+      patterns:
+        - "family office"
+        - "family-office"
+        - "fam office"
+        - "single family office"
+        - "multi family office"
+        - "SFO"
+        - "MFO"
+      confidence: 0.85
+
+    - term: "fund_of_funds"
+      canonical_label: "Fund of Funds"
+      category: "allocator_archetype"
+      patterns:
+        - "fund of funds"
+        - "fund-of-funds"
+        - "FoF"
+        - "FOF"
+        - "funds of funds"
+      confidence: 0.90
+
+    - term: "pension_fund"
+      canonical_label: "Pension Fund"
+      category: "allocator_archetype"
+      patterns:
+        - "pension fund"
+        - "pension"
+        - "superannuation"
+        - "provident fund"
+        - "retirement fund"
+        - "CPF"
+        - "GPIF"
+      confidence: 0.90
+
+    - term: "sovereign_wealth_fund"
+      canonical_label: "Sovereign Wealth Fund"
+      category: "allocator_archetype"
+      patterns:
+        - "sovereign wealth"
+        - "SWF"
+        - "government investment fund"
+        - "national wealth fund"
+        - "GIC"
+        - "Temasek"
+        - "Mubadala"
+        - "ADIA"
+        - "NBIM"
+      confidence: 0.92
+
+    - term: "endowment"
+      canonical_label: "Endowment"
+      category: "allocator_archetype"
+      patterns:
+        - "endowment"
+        - "university endowment"
+        - "college fund"
+        - "academic endowment"
+      confidence: 0.88
+
+    - term: "development_finance_institution"
+      canonical_label: "Development Finance Institution"
+      category: "allocator_archetype"
+      patterns:
+        - "DFI"
+        - "development finance"
+        - "IFC"
+        - "ADB"
+        - "AIIB"
+        - "development bank"
+        - "bilateral DFI"
+      confidence: 0.87
+
+    - term: "insurance"
+      canonical_label: "Insurance / Reinsurance"
+      category: "allocator_archetype"
+      patterns:
+        - "insurance"
+        - "insurer"
+        - "life insurance"
+        - "reinsurance"
+        - "P&C"
+      confidence: 0.85
+
+  em_signals:
+    - term: "em_appetite_high"
+      canonical_label: "High EM Appetite"
+      category: "em_signal"
+      patterns:
+        - "emerging market focus"
+        - "EM specialist"
+        - "frontier market"
+        - "Asia focus"
+        - "strong EM appetite"
+        - "committed to EM"
+        - "EM mandate"
+      confidence: 0.80
+
+    - term: "em_appetite_low"
+      canonical_label: "Low EM Appetite"
+      category: "em_signal"
+      patterns:
+        - "developed market only"
+        - "US only"
+        - "Europe only"
+        - "no EM"
+        - "no emerging market"
+        - "DM focus"
+      confidence: 0.78
+
+    - term: "asia_exposure"
+      canonical_label: "Asia Exposure"
+      category: "em_signal"
+      patterns:
+        - "Asia exposure"
+        - "Asia allocation"
+        - "APAC mandate"
+        - "Asia ex-Japan"
+        - "pan-Asia"
+        - "Southeast Asia"
+        - "India focus"
+      confidence: 0.75
+
+  rejection_patterns:
+    - term: "mandate_mismatch"
+      canonical_label: "Mandate Mismatch"
+      category: "rejection_pattern"
+      patterns:
+        - "outside mandate"
+        - "not within mandate"
+        - "mandate doesn't cover"
+        - "investment policy"
+        - "IPS constraint"
+        - "policy restriction"
+      confidence: 0.82
+
+    - term: "geography_constraint"
+      canonical_label: "Geography Constraint"
+      category: "rejection_pattern"
+      patterns:
+        - "geography constraint"
+        - "no Asia allocation"
+        - "EM not approved"
+        - "not investing in"
+        - "country restriction"
+        - "blacklisted market"
+      confidence: 0.80
+
+    - term: "size_constraint"
+      canonical_label: "Fund Size Constraint"
+      category: "rejection_pattern"
+      patterns:
+        - "too small"
+        - "minimum fund size"
+        - "below our minimum"
+        - "track record too short"
+        - "size doesn't fit"
+        - "fund too small"
+      confidence: 0.83
+
+    - term: "committee_constraint"
+      canonical_label: "Investment Committee Constraint"
+      category: "rejection_pattern"
+      patterns:
+        - "committee approval"
+        - "IC sign-off"
+        - "board approval required"
+        - "investment committee"
+        - "IC review"
+        - "governance constraint"
+        - "trustee approval"
+      confidence: 0.78
+
+    - term: "timing_constraint"
+      canonical_label: "Timing / Deployment Constraint"
+      category: "rejection_pattern"
+      patterns:
+        - "not deploying now"
+        - "fully deployed"
+        - "pausing commitments"
+        - "allocation full"
+        - "next vintage"
+        - "catch next fund"
+        - "timing not right"
+      confidence: 0.75
+
+  geography_clusters:
+    - term: "singapore_hq"
+      canonical_label: "Singapore HQ"
+      category: "geography_cluster"
+      patterns:
+        - "Singapore"
+        - "SGD"
+        - "MAS regulated"
+        - "ACRA registered"
+      confidence: 0.90
+
+    - term: "hong_kong_hq"
+      canonical_label: "Hong Kong HQ"
+      category: "geography_cluster"
+      patterns:
+        - "Hong Kong"
+        - "HK"
+        - "SFC regulated"
+        - "HKMA"
+      confidence: 0.90
+
+    - term: "middle_east_hub"
+      canonical_label: "Middle East Hub"
+      category: "geography_cluster"
+      patterns:
+        - "Dubai"
+        - "Abu Dhabi"
+        - "ADGM"
+        - "DIFC"
+        - "Saudi Arabia"
+        - "Riyadh"
+        - "Kuwait"
+        - "Qatar"
+      confidence: 0.88
+
+  committee_constraints:
+    - term: "long_approval_cycle"
+      canonical_label: "Long Approval Cycle"
+      category: "committee_constraint"
+      patterns:
+        - "6 month process"
+        - "12 month cycle"
+        - "annual review"
+        - "multi-year approval"
+        - "lengthy IC process"
+        - "board quarterly"
+      confidence: 0.72
+
+    - term: "co_investment_requirement"
+      canonical_label: "Co-Investment Requirement"
+      category: "committee_constraint"
+      patterns:
+        - "co-invest required"
+        - "co-investment right"
+        - "direct co-invest"
+        - "side car"
+        - "side-car"
+      confidence: 0.78

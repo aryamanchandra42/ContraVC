@@ -1,0 +1,16 @@
+﻿COLS: ['Nr', 'Investor Name', 'Investor Type', 'Maturity focus', 'Country of headquarter', 'Website', 'AQVC Investor identifier', 'Primary Contact Title', 'Primary Contact Full Name', 'First Name', 'Last Name', 'Email', 'Linkedin', 'AQVC contact identifier', 'Email Valid', 'Prospect activity']
+Rows: 5
+
+Investor Type values: ['Family Office']
+
+Maturity focus values: ['Emerging, Developing']
+
+Country values: ['Lithuania', 'UK', 'Italy', 'Austria', 'Netherlands']
+
+Sample:
+  Nr Investor Name  Investor Type Country of headquarter        Maturity focus
+0  1        Name A  Family Office              Lithuania  Emerging, Developing
+1  2        Name B  Family Office                     UK  Emerging, Developing
+2  3        Name C  Family Office                  Italy  Emerging, Developing
+3  4        Name D  Family Office                Austria  Emerging, Developing
+4  5        Name E  Family Office            Netherlands  Emerging, Developing

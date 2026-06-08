@@ -1,0 +1,36 @@
+# PULSE default runtime configuration.
+# Consumed by pulse/orchestrator.py, pulse/exports/outreach_pack.py,
+# and the Streamlit explorer (pulse/explore/app.py).
+
+version: "1.0"
+
+# ── Outreach pack composition ───────────────────────────────────────────────
+outreach:
+  # Section A: institutional prospect list, Tier 1, client-approved
+  include_tier1_approved: true
+
+# ── Export artifacts ────────────────────────────────────────────────────────
+exports:
+  write_lp_ranked_list: true
+  write_first_lps_ready: true
+  write_outreach_pack: true
+
+# ── Refresh / pipeline orchestration ────────────────────────────────────────
+refresh:
+  # Run lightweight invariant checks after every full pipeline refresh.
+  run_evals: true
+
+  # If true, a failing eval aborts the refresh. If false, evals are surfaced
+  # as warnings in the UI only.
+  evals_fail_blocks: false
+
+  # Stage order executed by pulse refresh / the UI button.
+  stages:
+    - ingest
+    - normalize
+    - extract
+    - derive
+    - graph
+    - score
+    - calibrate
+    - exports

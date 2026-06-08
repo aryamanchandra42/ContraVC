@@ -1,0 +1,45 @@
+﻿=== LP Type Priority ===
+COLS: ['LP Type Priority Tiers', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4', 'Unnamed: 5']
+  LP Type Priority Tiers                 Unnamed: 1          Unnamed: 2               Unnamed: 3                   Unnamed: 4                                                                                 Unnamed: 5
+0                   Tier                    LP Type  Typical Check Size         Conversion Speed          Decision Complexity                                                                                      Notes
+1             Tier 1 ΓÿàΓÿàΓÿà              Fund of Funds          $1M ΓÇô $30M      Medium (3ΓÇô6 months)           Medium ΓÇö single DM     Best check size fit. Active deployers. Often have dedicated emerging manager programs.
+2             Tier 1 ΓÿàΓÿàΓÿà        Multi-Family Office        $500K ΓÇô $10M      Medium (2ΓÇô5 months)         Medium ΓÇö IC approval                        High intent if AI-aligned. Can move faster than institutional FoFs.
+3              Tier 2 ΓÿàΓÿà              Family Office         $250K ΓÇô $5M        Fast (1ΓÇô3 months)              Low ΓÇö single DM  Most common in AQVC data. High variance in sophistication. Best for high-volume outreach.
+4              Tier 2 ΓÿàΓÿà                       HNWI         $100K ΓÇô $2M  Fast (weeks ΓÇô 2 months)        Very low ΓÇö individual     Easiest to reach. Small check sizes but fast decisions. Good for first-close momentum.
+5               Tier 3 Γÿà              Asset Manager          $2M ΓÇô $30M       Slow (6ΓÇô12 months)             High ΓÇö committee             Large checks but slow process. Pursue selectively when AI/VC mandate is clear.
+6               Tier 3 Γÿà  Corporate Venture Capital          $1M ΓÇô $20M       Slow (6ΓÇô12 months)         High ΓÇö strategic fit            Requires narrative tie to their portfolio thesis. Not a first-contact priority.
+7               Tier 4 ΓÇö               Pension Fund       $10M ΓÇô $100M+     Very slow (12ΓÇô18 mo)        Very high ΓÇö committee             Check size likely too large for Class 2 Fund. De-prioritize unless warm intro.
+8               Tier 4 ΓÇö                  Endowment          $5M ΓÇô $50M       Slow (9ΓÇô15 months)  High ΓÇö investment committee                            Similar to Pension. De-prioritize without direct access to CIO.
+
+=== ICP Prospects_m1 raw (first 8 rows) ===
+           0                  1             2                                                                                                                                                                                3    4
+0  Prospects                NaN           NaN                                                                                                                                                                              NaN  NaN
+1        NaN                NaN           NaN                                                                                                                                                                              NaN  NaN
+2        NaN             Month              1                                                                                                                                                                              NaN  NaN
+3        NaN             Total            101                                                                                                                                                                              NaN  NaN
+4        NaN          Rejected             22                                                                                                                                                                              NaN  NaN
+5        NaN     Rejection rate  0.2178217822                                                                                                                                                                              NaN  NaN
+6        NaN  Healthiness Score         Green  This field indicates the action taken when a prospect receives a Red healthiness score, such as broadening IIP criteria to reduce sourcing friction and optimize time and cost.  NaN
+7        NaN                NaN           NaN                                                                                                                                                                              NaN  NaN
+
+=== ICP Prospects_m2 raw (first 8 rows) ===
+           0                  1             2                                                                                                                                                                                3    4
+0  Prospects                NaN           NaN                                                                                                                                                                              NaN  NaN
+1        NaN                NaN           NaN                                                                                                                                                                              NaN  NaN
+2        NaN             Month              2                                                                                                                                                                              NaN  NaN
+3        NaN             Total            109                                                                                                                                                                              NaN  NaN
+4        NaN          Rejected             26                                                                                                                                                                              NaN  NaN
+5        NaN     Rejection rate  0.2385321101                                                                                                                                                                              NaN  NaN
+6        NaN  Healthiness Score         Green  This field indicates the action taken when a prospect receives a Red healthiness score, such as broadening IIP criteria to reduce sourcing friction and optimize time and cost.  NaN
+7        NaN                NaN           NaN                                                                                                                                                                              NaN  NaN
+
+=== ICP Prospects_m3 raw (first 8 rows) ===
+           0                  1             2                                                                                                                                                                                3    4
+0  Prospects                NaN           NaN                                                                                                                                                                              NaN  NaN
+1        NaN                NaN           NaN                                                                                                                                                                              NaN  NaN
+2        NaN             Month              3                                                                                                                                                                              NaN  NaN
+3        NaN             Total            101                                                                                                                                                                              NaN  NaN
+4        NaN          Rejected             44                                                                                                                                                                              NaN  NaN
+5        NaN     Rejection rate  0.4356435644                                                                                                                                                                              NaN  NaN
+6        NaN  Healthiness Score         Green  This field indicates the action taken when a prospect receives a Red healthiness score, such as broadening IIP criteria to reduce sourcing friction and optimize time and cost.  NaN
+7        NaN                NaN           NaN                                                                                                                                                                              NaN  NaN

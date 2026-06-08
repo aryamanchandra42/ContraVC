@@ -1,0 +1,65 @@
+---
+description: Relationship graph rules — edge types, evidence invariant, graph-native modeling
+globs: ["agents/graph/**", "agents/normalization/**", "schema/**"]
+alwaysApply: true
+---
+
+# PULSE Graph Rules
+
+## Relationships Are Data
+
+The relationship graph is NOT a derived, ad-hoc computation. It is a first-class persisted artifact:
+- Edges live in the `relationships` table (queryable SQL)
+- Edge evidence lives in `relationship_evidence` (append-only, source-traceable)
+- The NetworkX graph is serialized to `graphs/pulse.gpickle`, `graphs/edges.parquet`, and `graphs/pulse.graphml`
+- The graph builder reads from `relationships_effective` (post-review view), not directly from `relationships`
+
+## The Evidence-Required-Per-Edge Invariant
+
+**This is the most important graph invariant.** Every row in `relationships` MUST have ≥1 corresponding row in `relationship_evidence`.
+
+An edge with zero evidence rows is a schema violation. The evals harness checks this as a hard invariant on every run.
+
+When writing code that creates a relationship, ALWAYS create the evidence row atomically in the same transaction/write operation.
+
+## Edge Types (Canonical Catalogue)
+
+Use ONLY these edge types in `edge_type`:
+
+| Edge Type | Meaning | Typical Evidence Source |
+|-----------|---------|------------------------|
+| `invested_with` | LP invested alongside another LP in the same fund | `investments` table |
+| `introduced_by` | Entity A was introduced to entity B by entity C | `interactions` table, notes |
+| `co_invested` | Two LPs co-invested (direct, not via same fund) | `investments`, xlsx co-invest columns |
+| `syndicate_overlap` | Two entities appear in overlapping syndicates | `investments` pattern matching |
+| `mutual_connection` | Two entities share a common connection node | Graph inference from existing edges |
+| `repeated_exposure` | Two entities have had repeated contact/exposure | `interactions` recurrence |
+
+Do not invent new edge types without updating this catalogue and `agents/graph/edges.py`.
+
+## Node Types
+
+Graph nodes must be typed. Valid node types:
+- `lp` — Limited Partners (allocators)
+- `fund` — GP funds / vehicles
+- `syndicate` — co-investment syndicate structures
+- `founder` — company founders (portfolio context)
+- `advisor` — advisors, placement agents, introducers
+- `geography` — geographic region nodes (for network clustering)
+
+## Graph Modeling Principles
+
+- Use `networkx.MultiDiGraph` (directed, allows multiple edges between same node pair with different edge types)
+- Edge attributes MUST include: `edge_type`, `weight`, `confidence`, `evidence_count`, `first_seen`, `last_seen`, `last_active`, `relationship_decay_score`, `temporal_confidence`
+- `weight` defaults to `evidence_count` but can be overridden by a `human_reviews` row with `decision='revise'`
+- Community detection and centrality metrics are read-only computations; results are NOT written back to `relationships` in Phase 1-4
+
+## Persist Format
+
+The graph builder MUST produce all three serialization formats:
+1. `graphs/pulse.gpickle` — binary, for fast Python reload
+2. `graphs/edges.parquet` — queryable edge table with all attributes
+3. `graphs/evidence.parquet` — denormalized evidence, one row per evidence item per edge
+4. `graphs/pulse.graphml` — XML interchange for external tools
+
+Never write only one format. All four must be produced atomically in the same `persist` call.

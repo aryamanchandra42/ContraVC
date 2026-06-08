@@ -1,0 +1,18 @@
+# PULSE second-order syndicate connectivity inference
+version: "1.0"
+
+connectivity_weights:
+  direct_syndicate_degree: 0.30
+  two_hop_syndicate_reach: 0.40
+  bridge_strength: 0.30
+
+min_bridge_strength: 0.15
+max_edges_per_prospect: 25
+
+# Nodes treated as syndicate-side for traversal
+syndicate_populations:
+  - syndicate_lp
+
+# Prospects: institutional_prospect population OR present in icp_scores
+prospect_populations:
+  - institutional_prospect

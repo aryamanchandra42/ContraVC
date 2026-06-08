@@ -1,0 +1,23 @@
+﻿=== Sample raw_content keys from entities_raw (xlsx) ===
+
+FILE: Fund_Rating_Guide.xlsx
+  KEYS: ['The ultimate fund evaluation questionaire from the perspective of an LP by AQVC', '_sheet', '_row_number']
+
+=== Allocator type distribution ===
+  'unknown': 31
+
+=== entities_raw source_file distribution ===
+  AI_Native_VC_Fund_Strategy.docx (docx): 207 rows
+  Fund_Pre Screening Briefing_Call_Prep.pdf (pdf): 26 rows
+  Fund_Rating_Guide.xlsx (xlsx): 72 rows
+  LP Side Plan Draft 1.pdf (pdf): 34 rows
+  MyAsiaVC LP Scoping.xlsx (xlsx): 63 rows
+  MyAsiaVC_ICP_4.0_Prospect_List_External.xlsx (xlsx): 517 rows
+
+=== Review queue aliases.jsonl ===
+  25 items
+  {'queue_item_id': '16f3a35f-f2c6-4f82-b33e-2c7d0ab716c9', 'target_type': 'aliases', 'entity_id': 'f5e69b22-7d6e-4f3d-891e-ed878f4fa5f2', 'current_value': {'canonical_name': 'JRT Partners', 'alias_text': 'Global Markets Partners', 'confidence': 0.855}, 'evidence_pointers': [{'source_file': 'MyAsiaVC_ICP_4.0_Prospect_List_External.xlsx', 'source_record_id': '76001ad8a465b051af9cd49b541be3449988df75f8ef00ef69440b7cd2e4b48f'}], 'confidence': 0.855, 'reason': 'fuzzy_match_below_auto_threshold (0.85)', 'metadata': {}, 'surfaced_at': '2026-05-28T11:49:21.603167+00:00', 'status': 'pending'}
+  {'queue_item_id': 'd5eb1ce5-9ed8-47f0-b502-1310125dd056', 'target_type': 'aliases', 'entity_id': 'f5e69b22-7d6e-4f3d-891e-ed878f4fa5f2', 'current_value': {'canonical_name': 'JRT Partners', 'alias_text': 'EGR Partner', 'confidence': 0.782608695652174}, 'evidence_pointers': [{'source_file': 'MyAsiaVC_ICP_4.0_Prospect_List_External.xlsx', 'source_record_id': '632cd9a1b3a33c8c74a3ab86255dde9a274fcfdcac557a82dda24cd94860da5b'}], 'confidence': 0.782608695652174, 'reason': 'fuzzy_match_below_auto_threshold (0.78)', 'metadata': {}, 'surfaced_at': '2026-05-28T11:49:21.609161+00:00', 'status': 'pending'}
+  {'queue_item_id': '9fef7937-f851-43f7-982b-71ec2012fa1a', 'target_type': 'aliases', 'entity_id': 'f5e69b22-7d6e-4f3d-891e-ed878f4fa5f2', 'current_value': {'canonical_name': 'JRT Partners', 'alias_text': 'Mojo Partners', 'confidence': 0.76}, 'evidence_pointers': [{'source_file': 'MyAsiaVC_ICP_4.0_Prospect_List_External.xlsx', 'source_record_id': '13c80af51b53c8fe62507dceb6ad5c821cabaa60a17d63d6f5daf88329c60933'}], 'confidence': 0.76, 'reason': 'fuzzy_match_below_auto_threshold (0.76)', 'metadata': {}, 'surfaced_at': '2026-05-28T11:49:21.616916+00:00', 'status': 'pending'}
+  {'queue_item_id': '27529170-f886-4633-8ed4-f8fa4aed33b7', 'target_type': 'aliases', 'entity_id': '559b8ba1-1b74-4960-ab26-947502f01829', 'current_value': {'canonical_name': 'Hunch Ventures', 'alias_text': 'AG Ventures', 'confidence': 0.8}, 'evidence_pointers': [{'source_file': 'MyAsiaVC_ICP_4.0_Prospect_List_External.xlsx', 'source_record_id': 'dcb8f9f3cfead2af9684ef253433cb08580e615d42ce120d2986038fc9dfab61'}], 'confidence': 0.8, 'reason': 'fuzzy_match_below_auto_threshold (0.80)', 'metadata': {}, 'surfaced_at': '2026-05-28T11:49:21.636471+00:00', 'status': 'pending'}
+  {'queue_item_id': '924ce069-035c-464c-a923-db9ec1b012b2', 'target_type': 'aliases', 'entity_id': '559b8ba1-1b74-4960-ab26-947502f01829', 'current_value': {'canonical_name': 'Hunch Ventures', 'alias_text': 'PPR Ventures', 'confidence': 0.76}, 'evidence_pointers': [{'source_file': 'MyAsiaVC_ICP_4.0_Prospect_List_External.xlsx', 'source_record_id': '518790663dbee59d51f88bddf213729d78270189ca565bb377562534eb0619ee'}], 'confidence': 0.76, 'reason': 'fuzzy_match_below_auto_threshold (0.76)', 'metadata': {}, 'surfaced_at': '2026-05-28T11:49:21.643180+00:00', 'status': 'pending'}

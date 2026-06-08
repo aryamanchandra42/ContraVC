@@ -1,0 +1,10 @@
+﻿python :   File "<string>", line 5
+At C:\Users\aryam\AppData\Local\Temp\ps-script-c42c6037-576f-42d7-aef9-57e9623cbcd6.ps1:83 char:1
++ python -c @"
++ ~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (  File "<string>", line 5:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    rows = con.execute("SELECT
+                              ^
+SyntaxError: EOL while scanning string literal

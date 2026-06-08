@@ -1,0 +1,86 @@
+---
+description: Uncertainty, soft-truth, temporal decay, and human review rules
+globs: ["agents/uncertainty/**", "agents/reviews/**", "schema/**", "pulse/**"]
+alwaysApply: true
+---
+
+# PULSE Uncertainty & Human Review Rules
+
+## Soft-Truth Principle
+
+Private-market data is incomplete and contradictory. PULSE models this explicitly rather than hiding it behind deterministic claims.
+
+**Every probabilistic assertion carries four uncertainty columns:**
+
+| Column | Meaning | How Derived |
+|--------|---------|-------------|
+| `confidence` | Probability that this assertion is correct | Combinator over evidence strengths (see below) |
+| `evidence_count` | Number of supporting evidence rows | `COUNT(relationship_evidence WHERE edge_id = X)` |
+| `contradiction_score` | Fraction of observing sources that contradict | `contradicting_sources / observing_sources` |
+| `source_agreement_score` | Fraction of observing sources that agree | `agreeing_sources / observing_sources` |
+
+**These columns are NEVER hand-written.** Only `pulse derive` writes them.
+
+## Confidence Combinator
+
+Default combinator (configurable in `prompts/uncertainty.yaml`):
+
+```
+confidence = 1 - ∏(1 - sᵢ × cᵢ)
+```
+
+where `sᵢ` = `evidence_strength` and `cᵢ` = `confidence` of the i-th evidence row.
+
+This is a noisy-OR combination: one strong piece of evidence is sufficient; multiple weak ones compound.
+
+## Temporal Decay — Deterministic, Not Learned
+
+```
+relationship_decay_score = exp(-Δt / half_life_days)
+temporal_confidence = confidence × relationship_decay_score
+```
+
+- `Δt` = days since `last_active`
+- `half_life_days` = from `prompts/uncertainty.yaml` (default: 365)
+- This is a parameterized recency function, NOT a learned weight
+- It is materialized in `schema/views.sql` as a SQL expression, so it is recomputable from first principles at any time
+
+Do not replace this with an ML model. Do not add learned coefficients. Do not modify it outside of `uncertainty.yaml`.
+
+## Human Reviews — Append-Only Protocol
+
+The `human_reviews` table is APPEND-ONLY. This is not a soft constraint; it is a hard architectural invariant.
+
+**Rules:**
+1. Never `UPDATE` a row in `human_reviews`
+2. Never `DELETE` a row in `human_reviews`
+3. Revisions are new rows with `supersedes = <prior_review_id>`
+4. The "effective" review for any entity is the most recent non-superseded row
+5. Human review decisions are applied at QUERY TIME via `_effective` SQL views, not by mutating `relationships`, `allocators`, or `ontology_terms`
+
+**Decision Semantics:**
+- `confirm` — locks in the current derived value; raises its confidence floor
+- `reject` — marks the assertion as rejected; removes it from `_effective` views
+- `revise` — provides a corrected value in `override_payload`; `_effective` views use this value
+- `defer` — keeps the item in the review queue; increments `deferred_count`
+
+## Review Queue Protocol
+
+Every pipeline stage that produces uncertain output MUST write review candidates to:
+```
+processed_data/review_queues/{target_type}.jsonl
+```
+
+Valid target types: `aliases`, `allocator_types`, `edges`, `ontology_terms`, `signals`
+
+Queue rows are append-only. The review CLI reads them; humans make decisions; decisions are appended to `human_reviews`. The queue is NOT cleared when items are reviewed — it is the audit log of what was surfaced.
+
+## `_effective` Views — The Canonical Query Surface
+
+Do NOT query `relationships`, `allocators`, or `ontology_terms` directly in production code. Query their `_effective` views instead:
+
+- `relationships_effective` — applies human overrides to edges
+- `allocators_effective` — applies archetype overrides to allocators
+- `ontology_terms_effective` — applies label overrides to ontology terms
+
+The graph builder reads ONLY from `relationships_effective`. Notebooks SHOULD use `_effective` views for all analysis.

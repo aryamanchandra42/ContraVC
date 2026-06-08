@@ -1,0 +1,75 @@
+---
+description: Provenance rules — every record must trace to its source
+globs: ["agents/**/*.py", "schema/**"]
+alwaysApply: true
+---
+
+# PULSE Provenance Rules
+
+## The Provenance Invariant
+
+Every normalized, canonical, or derived record MUST carry an unbroken chain back to its raw source:
+
+```
+canonical row → entities_raw row → source file → byte offset
+```
+
+If you cannot trace a row back to a source file and offset, the row is inadmissible.
+
+## `source_record_id` — The Stable Foreign Key
+
+`source_record_id` is the universal provenance anchor. It is computed as:
+
+```python
+import hashlib, json
+
+def make_source_record_id(source_file: str, source_offset: str, content_hash: str) -> str:
+    key = json.dumps({"f": source_file, "o": source_offset, "h": content_hash}, sort_keys=True)
+    return hashlib.sha256(key.encode()).hexdigest()
+```
+
+Properties:
+- Deterministic: same source file + offset + content → same ID across all runs
+- Stable: does not change if unrelated fields are updated
+- References `entities_raw.source_record_id` as a foreign key from `relationship_evidence`
+
+## What `entities_raw` Must Contain
+
+The `entities_raw` table is append-only and never modified. It captures:
+
+| Column | Meaning |
+|--------|---------|
+| `source_record_id` | stable content-hash-derived ID |
+| `source_file` | path relative to `raw_data/` |
+| `source_type` | `xlsx`, `pdf`, `docx`, `api` |
+| `source_offset` | sheet+row for xlsx; page+char for pdf; paragraph index for docx |
+| `content_hash` | SHA-256 of the raw row/chunk bytes |
+| `raw_content` | the raw text/dict captured at ingestion (JSON-serialized) |
+| `ingested_at` | UTC timestamp of ingestion |
+| `schema_version` | adapter schema version at ingestion time |
+
+## Ingestion Adapter Responsibility
+
+Every ingestion adapter MUST:
+1. Compute `content_hash` from the raw bytes of each row/chunk
+2. Compute `source_record_id` using the canonical function above
+3. Check for idempotency: if `source_record_id` already exists in `entities_raw`, skip insertion (do not overwrite)
+4. Include `source_offset` at sufficient granularity: for xlsx = `{sheet}:{row_number}`; for pdf = `page:{n}:char:{offset}`; for docx = `para:{n}`
+
+## Cross-File Match Evidence
+
+When the entity resolver matches two records from different source files as the same canonical entity, it MUST emit a `relationship_evidence` row with:
+- `evidence_type = "cross_file_match"`
+- `evidence_strength` = the rapidfuzz similarity score (normalized to [0,1])
+- `provenance_pointer` referencing both source records
+
+This makes entity resolution itself auditable and reversible.
+
+## `relationship_evidence` as Provenance for Edges
+
+No relationship edge may exist without a `relationship_evidence` row. The evidence row IS the provenance for the edge. It contains:
+- `source_record_id` → the specific raw record that supports this edge
+- `provenance_pointer` → `{source_file, source_offset, row_id}` for full drill-down
+- `evidence_type` → how the evidence was discovered (which extractor, which pattern)
+
+This is what makes PULSE explainable: every inferred relationship can be traced to a specific row in a specific source file.

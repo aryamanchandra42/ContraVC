@@ -1,0 +1,43 @@
+user_template: |
+  LP TO SCREEN: {lp_name}
+
+  === BACKEND (Contra DB) ===
+  Match: {matched_name} (confidence: {match_confidence}, method from brief)
+  In CRM: {in_crm}
+  Population: {population}
+  ICP tier: {icp_tier} | fit: {fit_score} | core_pass: {core_pass} | excluded: {excluded}
+  Exclusion: {exclusion_reason}
+  Client decision: {client_decision}
+  Contra Top 200 rank: {contra_rank}
+  Warm paths: {warm_path_count} | Investments: {investment_count}
+  Top signals: {top_signals_json}
+  Rejections: {rejection_reasons_json}
+  C1: {c1_evidence}
+  C2: {c2_evidence}
+  C3: {c3_evidence}
+  C4: {c4_evidence}
+
+  === SYNDICATE INTELLIGENCE ===
+  {syndicate_profile_json}
+
+  === WARM INTRO PATHS (top 3) ===
+  {warm_paths_json}
+
+  === CONTACTS ===
+  {contacts_json}
+
+  Full backend JSON:
+  {backend_json}
+
+  === DRILL-DOWN ===
+  {drill_down_json}
+
+  === WEB RESEARCH (mandatory) ===
+  {web_context}
+
+  === ICP RULES ===
+  {icp_rules_compact}
+
+  Decide YES or NO. Fill all GateVerdict fields with specific backend and online citations.
+  When syndicate_profile shows is_fund_lp=True, treat this as a strong positive signal for CRM addition.
+  When warm_paths lists named bridges, mention the best intro route in your reasons.

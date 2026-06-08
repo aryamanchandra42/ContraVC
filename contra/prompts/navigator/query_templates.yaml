@@ -1,0 +1,60 @@
+templates:
+  lp_profile:
+    description: Full profile for one LP by name
+    sql: |
+      SELECT * FROM v_lp_profile
+      WHERE canonical_name ILIKE '%' || ? || '%'
+      LIMIT 3
+
+  lp_signals:
+    description: All signals for an allocator_id
+    sql: |
+      SELECT signal_type, normalized_value, confidence, source_file
+      FROM signals
+      WHERE CAST(allocator_id AS VARCHAR) = ?
+      ORDER BY confidence DESC
+      LIMIT 20
+
+  lp_relationships:
+    description: Graph edges for an allocator
+    sql: |
+      SELECT edge_type, source_node_id, target_node_id, weight, confidence
+      FROM relationships_effective
+      WHERE CAST(source_node_id AS VARCHAR) = ?
+         OR CAST(target_node_id AS VARCHAR) = ?
+      ORDER BY confidence DESC
+      LIMIT 15
+
+  document_search:
+    description: Search fund docs for a term
+    sql: |
+      SELECT source_file, chunk_text
+      FROM v_document_chunks
+      WHERE chunk_text ILIKE '%' || ? || '%'
+      LIMIT 10
+
+  fuzzy_alias_lookup:
+    description: Find allocator by alias or name
+    sql: |
+      SELECT ea.alias_text, a.canonical_name, CAST(a.allocator_id AS VARCHAR) AS allocator_id
+      FROM entity_aliases ea
+      JOIN allocators_effective a ON CAST(a.allocator_id AS VARCHAR) = ea.canonical_id
+      WHERE ea.alias_text ILIKE '%' || ? || '%'
+         OR a.canonical_name ILIKE '%' || ? || '%'
+      LIMIT 10
+
+  crm_lookup:
+    description: Check CRM for name
+    sql: |
+      SELECT investor_name, investor_type, investor_details, crm_status
+      FROM v_crm_contacts
+      WHERE name_key = ? OR investor_name ILIKE '%' || ? || '%'
+      LIMIT 5
+
+  icp_rules:
+    description: ICP rules by category
+    sql: |
+      SELECT rule_id, rule_name, rule_text, weight
+      FROM icp_rules
+      WHERE category = ?
+      ORDER BY rule_id
