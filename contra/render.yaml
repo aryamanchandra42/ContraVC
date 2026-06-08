@@ -7,7 +7,7 @@ services:
     rootDir: contra
     pythonVersion: "3.11.9"
     buildCommand: pip install -e ".[gate,api]"
-    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    startCommand: python -m uvicorn api.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PULSE_LLM_PROVIDER
         value: groq
