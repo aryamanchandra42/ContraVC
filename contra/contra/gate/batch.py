@@ -156,6 +156,7 @@ def _screen_one(
                 nfx_url=record.nfx_url,
                 compact_web=compact_web,
                 nfx_context=record.to_nfx_context_string(),
+                screening_mode="nfx_individual",
             )
             verdict = "yes" if result.yes else ("review" if result.is_review else "no")
 

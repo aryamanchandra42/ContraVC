@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -37,6 +37,11 @@ class GateSignal(BaseModel):
 
 # Graded appetite scale used across inferred appetite dimensions.
 AppetiteLevel = Literal["strong", "moderate", "weak", "none", "unknown"]
+
+# Screening mode — controls verdict strictness across different call surfaces.
+# nfx_individual: people from NFX Signal batch (mostly angels/GPs) — lean NO without LP evidence
+# institutional:  named entity screens (family offices, FoFs) — lean REVIEW when uncertain
+ScreeningMode = Literal["nfx_individual", "institutional"]
 
 # Behavioral allocator archetypes (assigned from allocation behavior, not raw type).
 Archetype = Literal[
@@ -153,6 +158,26 @@ class GateResult(BaseModel):
     # Analyst-provided context (grows through chat)
     analyst_facts: List[str] = Field(default_factory=list)
 
+    # Structured decisive output fields
+    # Explicit external LP fund commitments confirmed by the LLM (empty = none found)
+    lp_commitments_found: List[str] = Field(default_factory=list)
+    # Single decisive reason for NO verdicts (empty for yes/review)
+    primary_blocker: str = ""
+    # PitchBook enrichment status: "fetched" | "not_found" | "no_cookies" | "expired"
+    pitchbook_status: str = "no_cookies"
+
+    # Investment overlay data — surfaced in the UI's embedded investment panels
+    # Deal names from a low-confidence DB match (shown with caveat: may not be this person)
+    partial_match_deals: List[str] = Field(default_factory=list)
+    # Summary of partial-match investment type (fund_deals, direct_deals counts)
+    partial_match_investment_summary: Dict[str, Any] = Field(default_factory=dict)
+    # Similar confirmed LP investors from DB with matching geography/sector profiles
+    similar_confirmed_lps: List[Dict[str, Any]] = Field(default_factory=list)
+    # Post-LLM archetype fit summary — how well the screened LP matches its anchors
+    archetype_fit: Optional[Dict[str, Any]] = None
+    # Structured NFX Signal profile data (if LP was from an NFX batch)
+    nfx_profile: Dict[str, Any] = Field(default_factory=dict)
+
 
 # ---------------------------------------------------------------------------
 # Legacy alias — kept so existing callers don't break during transition
@@ -226,6 +251,14 @@ class GateExplanation(BaseModel):
 
     # Cited allocation decisions (managers/companies backed) the inference rests on
     allocation_evidence: List[str] = Field(default_factory=list)
+
+    # Explicit external LP fund commitments confirmed (named fund + LP role, not employer portfolio)
+    # Example: ["LP in Hustle Fund (2022)", "Anchor LP in Weekend Fund II (2023)"]
+    lp_commitments_found: List[str] = Field(default_factory=list)
+
+    # Single decisive phrase for NO verdicts (empty for yes/review)
+    # Example: "GP at Hustle Fund — no external VC fund LP commitments found"
+    primary_blocker: str = ""
 
     def llm_core_gates(self) -> List[CoreGateCheck]:
         """Reconstruct CoreGateCheck objects from the flat scalar fields."""

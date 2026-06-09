@@ -28,6 +28,7 @@ router = APIRouter()
 class GateAddToCrmRequest(BaseModel):
     session_id: str
     preview_only: bool = False
+    override: bool = False
 
 
 class GateAddToCrmResponse(BaseModel):
@@ -97,9 +98,9 @@ def _workspace_row_to_lead(row: tuple, cols: List[str]) -> CrmLead:
 def gate_add_to_crm(req: GateAddToCrmRequest, con=Depends(get_db)) -> GateAddToCrmResponse:
     try:
         if req.preview_only:
-            preview = preview_lead_from_gate(con, req.session_id)
+            preview = preview_lead_from_gate(con, req.session_id, override=req.override)
             return GateAddToCrmResponse(preview=preview)
-        lead = add_lead_from_gate(con, req.session_id)
+        lead = add_lead_from_gate(con, req.session_id, override=req.override)
         return GateAddToCrmResponse(lead=lead)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

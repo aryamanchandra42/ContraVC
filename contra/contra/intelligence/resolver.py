@@ -12,8 +12,9 @@ _LEGAL_SUFFIX_RE = re.compile(
     r"\s+(ltd|limited|llc|inc|corp|plc|pte|sa|bv|gmbh|lp|llp|co)\.?$", re.IGNORECASE
 )
 
-FUZZY_AUTO = 92
-FUZZY_REVIEW = 85
+FUZZY_AUTO = 92      # trust fully, load all DB data
+FUZZY_REVIEW = 85    # load with match_untrusted=True caveat
+FUZZY_LOW = 60       # load ONLY investment summary (no ICP/syndicate) with caveat
 
 
 def norm_key(name: str) -> str:
@@ -79,4 +80,8 @@ def resolve(con, name: str) -> MatchResult:
         return MatchResult(name, matched, aid, conf, "fuzzy")
     if score >= FUZZY_REVIEW:
         return MatchResult(name, matched, aid, conf, "fuzzy_review")
+    if score >= FUZZY_LOW:
+        # Return the candidate ID so we can pull investment history only.
+        # All other DB signals (ICP, syndicate) are suppressed in brief.py.
+        return MatchResult(name, matched, aid, conf, "fuzzy_low")
     return MatchResult(name, None, None, conf, "none")

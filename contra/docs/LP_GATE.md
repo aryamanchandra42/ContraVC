@@ -133,19 +133,32 @@ This assessment is **advisory** — it is passed to the LLM as structured input,
 - `confidence` — high / medium / low
 - `reasons`, `backend_evidence`, `online_evidence`, `conflicts`, `summary`
 - Flat core gate fields (`c1_status`–`c4_status` + evidence strings) assessed from web research
-- `web_em_ai_vc` — whether web research found both emerging-manager appetite **and** AI/tech VC fund LP activity
+- Graded appetite fields (`em_appetite`, `fund_i_appetite`, `ai_tech_appetite`, `venture_appetite`, `geography_appetite`) plus per-dimension evidence strings
+- `lp_commitments_found[]` — explicit external LP fund commitments the LLM confirmed (empty if none found)
+- `primary_blocker` — single decisive phrase for NO verdicts
+- `negative_flags[]` — disqualifying evidence tags (e.g. `no_fund_lp_history`, `pe_only`, `direct_only`)
 
-**Requirement:** `PULSE_LLM_PROVIDER` and the matching API key (e.g. `GROQ_API_KEY`) must be set.
+**Requirement:** `PULSE_LLM_PROVIDER` and the matching API key must be set.
 
-### Phase 6 — Optional re-evaluation
+### Phase 6 — Appetite validator (deterministic guardrails)
 
-If the LLM sets `web_em_ai_vc=true` but the evaluator only met fewer than 2 signals, the evaluator re-runs with `web_em_ai_vc=True`. This adds the **"Web: EM + AI/tech VC fund LP evidence"** signal to the checklist and may bump `signals_met`.
+`validate_and_patch()` in `contra/gate/appetite_validator.py` applies hard rules to the LLM output **before** the appetite profile is built. This catches common LLM errors:
 
-### Phase 7 — Final decision assembly
+| Condition | Correction |
+|-----------|------------|
+| GP/Principal title in NFX context + no external LP commits | Add `no_fund_lp_history` flag; cap `em_appetite`, `fund_i_appetite` to `unknown` |
+| `em_appetite` moderate/strong but no LP commit language in `allocation_evidence` | Downgrade to `unknown` |
+| `allocation_evidence` entries reference employer fund's portfolio | Strip employer portfolio entries |
+| `nfx_individual` mode + any strong negative flag | Force `llm_recommendation = "no"` |
 
-1. **Recommendation:** If hard blocks exist → `no`. Otherwise → `explanation.llm_recommendation`.
-2. **Core gate merge:** Evaluator gates with definite pass/fail win over LLM. When the evaluator says `unknown`, the LLM's web-inferred assessment fills the gap (`_merge_core_gates()`).
-3. **Result packaging:** Everything is assembled into a `GateResult` with `session_id` for chat follow-up.
+The validator never upgrades verdicts — only corrects downward.
+
+### Phase 7 — Post-LLM evaluation and final decision
+
+1. **Re-evaluate** with the validated `AppetiteProfile` (adds graded appetite signals toward the ≥2 bar).
+2. **Final recommendation:** Hard blocks → `no`. Otherwise: `apply_appetite_adjustments(llm_recommendation, appetite, screening_mode)`.
+3. **Core gate merge:** Evaluator's DB-backed gates win over LLM when definite. `unknown` evaluator gates are filled by LLM's web assessment.
+4. **Result packaging:** `GateResult` assembled with `session_id`, `lp_commitments_found`, `primary_blocker`, and `pitchbook_status`.
 
 ---
 
@@ -205,7 +218,9 @@ Beyond core gates, LP Gate tracks **qualifying signals** — independent evidenc
 | `syndicate_upgrade` | Syndicate Upgrade Candidate | syndicate | ≥1 fund deal AND ≥$5k committed |
 | `warm_path` | Warm Intro Path | backend | `warm_path_count > 0` in network graph |
 | `benchmark_rank` | Contra Top-200 Ranking | backend | LP appears on benchmark list |
-| `web_em_ai_vc` | Web: EM + AI/tech VC fund LP evidence | web | LLM found both EM appetite and AI/tech fund LP activity |
+| `appetite_emerging_manager` | Inferred Emerging-Manager / Fund-I Appetite | web | `em_appetite` or `fund_i_appetite` ≥ moderate (from LP allocation behavior, not GP role) |
+| `appetite_ai_tech` | Inferred AI / Tech Appetite | web | `ai_tech_appetite` ≥ moderate |
+| `appetite_venture_fit` | Inferred Venture Fund-LP Appetite | web | `venture_appetite` ≥ moderate |
 | `analyst_fact_1/2` | Analyst Context | analyst | Analyst provided explicit facts (capped at 2 signal points) |
 
 ### Tentative recommendation rules (evaluator)
@@ -226,19 +241,83 @@ The LLM may override this heuristic (except for hard blocks). For example, a wel
 
 ---
 
+## Screening modes
+
+`run_gate()` accepts a `screening_mode` parameter that governs verdict strictness:
+
+| Mode | Call surface | Default posture | GP + no LP evidence |
+|------|-------------|-----------------|---------------------|
+| `nfx_individual` | NFX Signal batch, NFX selenium scraper | Lean **NO** when C1 unconfirmed | → **NO** |
+| `institutional` | CLI, REST API, manual screens | Lean **REVIEW** when C1 uncertain | → **REVIEW** |
+
+The NFX batch (`batch_gate_run`) and selenium scraper automatically pass `screening_mode="nfx_individual"`. All other callers default to `institutional`.
+
+---
+
+## EM appetite rules
+
+EM appetite (`em_appetite`, `fund_i_appetite`) requires **explicit evidence of LP capital committed to external VC funds**. The following do NOT qualify:
+
+- Being employed at / working for an emerging manager
+- Angel deals into startups
+- Articles or media about emerging managers in general
+- NFX Signal profile listing emerging-market sectors
+
+The `appetite_emerging_manager` signal is only met when `em_appetite` or `fund_i_appetite` is `moderate` or `strong`, which in turn requires at least one named external LP commitment in `allocation_evidence`. The appetite validator (`appetite_validator.py`) enforces this deterministically after the LLM pass.
+
+---
+
+## Name match guard
+
+When the database resolver matches an input name to a different person via alias or fuzzy match (e.g. "Will Bricker" → "Will Au"), the `match_untrusted` flag is set on `IntelligenceBrief`. The heuristic checks whether the last significant token of the input name appears in the matched name — if not, the match is flagged unreliable.
+
+Consequences of `match_untrusted = True`:
+- Evaluator treats the LP as having no database record (ICP/syndicate signals not counted)
+- LLM prompt receives an explicit warning to ignore backend profile data
+- The mismatch is noted in `conflicts[]`
+
+---
+
+## PitchBook enrichment
+
+PitchBook profiles are injected into web research when session cookies are available at `processed_data/pb_session_cookies.json`. Gate already calls `_inject_pitchbook()` automatically.
+
+To enable PitchBook enrichment:
+1. Run `contra pitchbook-login` (or the `pitchbook_scraper.py` login flow) once
+2. This saves `processed_data/pb_session_cookies.json`
+3. Subsequent `contra gate` calls will automatically fetch and inject PitchBook profiles
+
+`GateResult.pitchbook_status` reports the enrichment outcome: `"fetched"` | `"not_found"` | `"no_cookies"` | `"expired"`.
+
+In compact_web batch mode, if a PitchBook profile is fetched, the web context budget is automatically raised from 1200 to 2500 chars so the structured LP data (AUM, LP type, recent commitments) is not truncated.
+
+---
+
+## Structured output fields
+
+`GateResult` includes three new fields for decisive, actionable output:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `lp_commitments_found` | `List[str]` | External LP fund commitments confirmed by the LLM, e.g. `["LP in Hustle Fund (2022) — Crunchbase"]` |
+| `primary_blocker` | `str` | Single decisive phrase for NO verdicts, e.g. `"GP at Hustle Fund — no external LP commitments found"` |
+| `pitchbook_status` | `str` | PitchBook enrichment status for this screen |
+
+---
+
 ## LLM decision philosophy
 
 The explain prompt (`gate_explain.yaml`) instructs the LLM to:
 
 - Treat database signals as **inputs**, not the verdict
-- **Not** default to NO just because the LP is missing from the database
+- **Not** default to NO just because the LP is missing from the database (institutional mode)
 - Make a holistic judgment using web research, drill-down data, and general knowledge
 - Assess C1–C4 probabilistically when the evaluator marks them unknown
+- Apply the GP ≠ LP rule: employer fund's portfolio is never the person's `allocation_evidence`
+- C2 and `em_appetite` default to `unknown` unless an external LP commitment is cited
 - Cite specific evidence in `reasons`, `backend_evidence`, and `online_evidence`
 - Note disagreements between backend and web in `conflicts[]`
-- Write a two-sentence `summary`: recommendation + next action
-
-The LLM is explicitly told that missing from the database is common for promising LPs and should not alone produce a NO.
+- Write a decisive two-sentence `summary` — no hedge language for NO verdicts
 
 ---
 

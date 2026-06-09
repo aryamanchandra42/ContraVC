@@ -5,12 +5,17 @@ from __future__ import annotations
 import uuid
 from typing import Dict, List, Optional
 
+from contra.gate.appetite_validator import validate_and_patch
 from contra.gate.evaluator import apply_appetite_adjustments, build_allocation_evidence, evaluate
 from contra.gate.models import CoreGateCheck, GateAssessment, GateResult
 from contra.gate.research import search_lp, search_lp_with_nfx
 from contra.gate.session import GateSession, create_session
 from contra.gate.verdict import explain, explain_hard_block
-from contra.intelligence.brief import lookup
+from contra.intelligence.brief import find_similar_confirmed_lps, lookup
+from contra.intelligence.lp_similarity import (
+    build_similarity_target,
+    compute_archetype_fit,
+)
 from contra.intelligence.navigator import run_drill_down
 
 
@@ -42,6 +47,50 @@ def _merge_core_gates(
     return merged
 
 
+def _pitchbook_status(source_urls: List[str]) -> str:
+    """
+    Derive PitchBook enrichment status from the source URLs returned by web research.
+
+    Checks whether a PitchBook profile was injected by looking at source_urls, and
+    whether PitchBook cookies are available at all.
+    """
+    try:
+        from agents.research.pitchbook_fetch import cookies_available
+        if not cookies_available():
+            return "no_cookies"
+    except Exception:
+        return "no_cookies"
+
+    pb_fetched = any("pitchbook.com" in url for url in (source_urls or []))
+    return "fetched" if pb_fetched else "not_found"
+
+
+def _parse_nfx_context(nfx_context: Optional[str]) -> dict:
+    """Parse the NFX context string back into a structured dict for the UI."""
+    if not nfx_context:
+        return {}
+    profile: dict = {}
+    field_map = {
+        "investor": "investor_name",
+        "firm": "firm_name",
+        "nfx url": "nfx_url",
+        "sweet spot": "sweet_spot",
+        "check min": "check_min",
+        "check max": "check_max",
+        "locations": "locations",
+        "intro source": "intro_source",
+        "intro strength": "intro_strength",
+    }
+    for line in nfx_context.splitlines():
+        if ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        key_norm = key.strip().lower()
+        if key_norm in field_map and val.strip():
+            profile[field_map[key_norm]] = val.strip()
+    return profile
+
+
 def run_gate(
     con,
     name: str,
@@ -50,14 +99,21 @@ def run_gate(
     nfx_url: Optional[str] = None,
     compact_web: bool = False,
     nfx_context: Optional[str] = None,
+    screening_mode: str = "institutional",
 ) -> GateResult:
     """
     Full gate run — returns GateResult and registers a session for chat follow-up.
 
-    Phase 1: build IntelligenceBrief (backend lookup)
-    Phase 2: deterministic evaluation (evaluator.py)
-    Phase 3: LLM explain pass (verdict.py) — also extracts web signal
-    Phase 4: optional re-evaluation if web signal was found and signals_met < 2
+    Phase 1: build IntelligenceBrief (backend lookup + match-trust check)
+    Phase 2: deterministic pre-LLM evaluation
+    Phase 3: LLM explain pass — infers appetite + verdict
+    Phase 4: appetite validator — deterministic guardrails on LLM output
+    Phase 5: post-LLM evaluate with validated appetite profile
+    Phase 6: final decision assembly
+
+    screening_mode controls verdict strictness:
+      "nfx_individual"  — NFX Signal batch; GP + no LP history → NO
+      "institutional"   — named entity screens; uncertain → REVIEW
     """
     analyst_facts = analyst_facts or []
     session_id = _session_id or uuid.uuid4().hex
@@ -66,7 +122,7 @@ def run_gate(
 
     # ----- Short-circuit for hard CRM block (no LLM needed) ----------------
     if brief.in_crm:
-        assessment = evaluate(brief, analyst_facts)
+        assessment = evaluate(brief, analyst_facts, screening_mode=screening_mode)
         explanation = explain_hard_block(assessment, name)
         result = GateResult(
             session_id=session_id,
@@ -82,6 +138,7 @@ def run_gate(
             summary=explanation.summary,
             db_queries_used=[],
             analyst_facts=analyst_facts,
+            primary_blocker=assessment.hard_blocks[0] if assessment.hard_blocks else "",
         )
         _register_session(
             session_id, name, brief, "(already in CRM — web search skipped)",
@@ -90,19 +147,36 @@ def run_gate(
         return result
 
     # ----- Web research + drill-down ----------------------------------------
-    # compact_web=True cuts web context to 1200 chars (~40% fewer tokens)
-    # used by the batch runner to stay under Groq free-tier TPD limits.
-    # Single-LP gate uses 4000 chars so all 10 searched URLs' snippets reach the LLM.
+    # compact_web=True cuts web context to 1200 chars; single-LP gate uses 4000.
+    # When a PitchBook profile is injected, raise the batch limit so PB data
+    # isn't truncated (it's the highest-value source).
     max_chars = 1200 if compact_web else 4000
     if nfx_url:
         web_context, source_urls = search_lp_with_nfx(name, nfx_url=nfx_url, max_chars=max_chars)
     else:
         web_context, source_urls = search_lp(name, max_chars=max_chars)
+
+    pb_status = _pitchbook_status(source_urls)
+    # If PitchBook was fetched in a compact_web run, extend the context budget
+    # so PB's structured data (AUM, LP type, recent commitments) isn't truncated.
+    if compact_web and pb_status == "fetched" and len(web_context) < 2500:
+        web_context, source_urls = (
+            search_lp_with_nfx(name, nfx_url=nfx_url, max_chars=2500)
+            if nfx_url
+            else search_lp(name, max_chars=2500)
+        )
+
     drill_results = run_drill_down(con, brief)
     allocation_evidence = build_allocation_evidence(brief)
 
+    # ----- Pre-LLM similar LP lookup (coarse — no appetite info yet) --------
+    pre_target = build_similarity_target(
+        brief, nfx_context=nfx_context, web_context=web_context,
+    )
+    brief.similar_confirmed_lps = find_similar_confirmed_lps(con, pre_target, limit=4)
+
     # ----- Phase 1: deterministic assessment (pre-appetite) -----------------
-    assessment = evaluate(brief, analyst_facts)
+    assessment = evaluate(brief, analyst_facts, screening_mode=screening_mode)
 
     # ----- Phase 2: LLM explain pass — infers appetite ----------------------
     explanation = explain(
@@ -114,26 +188,41 @@ def run_gate(
         analyst_facts=analyst_facts,
         allocation_evidence=allocation_evidence,
         nfx_context=nfx_context,
+        screening_mode=screening_mode,
     )
 
-    # ----- Re-eval with the inferred appetite -------------------------------
-    # The appetite profile adds graded appetite signals (toward the >=2 bar) and
-    # drives soft negative/archetype downgrades. The DB allocation evidence is
-    # carried into the profile as the audit trail behind the inference.
+    # ----- Phase 3: appetite validator — deterministic guardrails -----------
+    # Catches LLM errors like citing employer-fund portfolio as LP evidence,
+    # over-inferring EM appetite from GP role, or hedging when mode says NO.
+    explanation = validate_and_patch(
+        explanation,
+        nfx_context=nfx_context,
+        web_context=web_context,
+        screening_mode=screening_mode,
+    )
+
+    # ----- Post-LLM similar LP re-score (appetite-informed) -----------------
     appetite = explanation.to_appetite_profile(
         allocation_evidence=[allocation_evidence] if allocation_evidence else [],
     )
-    assessment = evaluate(brief, analyst_facts, appetite=appetite)
+    post_target = build_similarity_target(
+        brief, nfx_context=nfx_context, web_context=web_context, appetite=appetite,
+    )
+    refined_lps = find_similar_confirmed_lps(con, post_target, limit=4)
+    brief.similar_confirmed_lps = refined_lps
 
-    # ----- LLM is the primary decision-maker --------------------------------
-    # Hard blocks always win; otherwise the LLM's holistic call decides, then soft
-    # appetite/negative adjustments may nudge it down (never up, never past a block).
+    # ----- Phase 4: re-eval with the validated appetite profile -------------
+    assessment = evaluate(brief, analyst_facts, appetite=appetite, screening_mode=screening_mode)
+
+    # ----- Final decision: LLM is primary, hard blocks always win -----------
     if assessment.hard_blocks:
         final_rec = "no"
     else:
-        final_rec = apply_appetite_adjustments(explanation.llm_recommendation, appetite)
+        final_rec = apply_appetite_adjustments(
+            explanation.llm_recommendation, appetite, screening_mode
+        )
 
-    # Merge evaluator's DB-backed core gates with the LLM's web-inferred ones
+    # Merge evaluator's DB-backed core gates with LLM's web-inferred ones
     merged_core_gates = _merge_core_gates(assessment.core_gates, explanation.llm_core_gates())
     assessment = assessment.model_copy(update={
         "recommendation": final_rec,
@@ -143,6 +232,26 @@ def run_gate(
 
     # ----- Assemble result --------------------------------------------------
     db_queries = [d.get("template_id", "?") for d in drill_results]
+
+    primary_blocker = ""
+    if final_rec == "no":
+        primary_blocker = (
+            explanation.primary_blocker
+            or (assessment.hard_blocks[0] if assessment.hard_blocks else "")
+            or next(
+                (f.replace("_", " ").capitalize() for f in (appetite.negative_flags or [])
+                 if f in {"no_fund_lp_history", "pe_only", "direct_only", "no_venture",
+                          "angel_only", "nfx_angel_only"}),
+                ""
+            )
+        )
+
+    archetype_fit = compute_archetype_fit(appetite.archetype, brief.similar_confirmed_lps)
+    archetype_fit_dict = {
+        "fit_level": archetype_fit.fit_level,
+        "avg_similarity_score": archetype_fit.avg_similarity_score,
+        "rationale": archetype_fit.rationale,
+    }
 
     result = GateResult(
         session_id=session_id,
@@ -160,6 +269,14 @@ def run_gate(
         appetite=appetite,
         source_urls=source_urls,
         analyst_facts=analyst_facts,
+        lp_commitments_found=explanation.lp_commitments_found,
+        primary_blocker=primary_blocker,
+        pitchbook_status=pb_status,
+        partial_match_deals=brief.partial_match_deals,
+        partial_match_investment_summary=brief.investment_summary or {} if brief.match_method == "fuzzy_low" else {},
+        similar_confirmed_lps=brief.similar_confirmed_lps,
+        archetype_fit=archetype_fit_dict,
+        nfx_profile=_parse_nfx_context(nfx_context),
     )
 
     if final_rec in ("yes", "review"):

@@ -530,7 +530,10 @@ class ResilientLLMClient:
 # Default models per provider
 _DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-3-5-haiku-20241022",
-    "openai": "gpt-4o-mini",
+    # gpt-4o is the default for OpenAI — significantly better structured reasoning
+    # than gpt-4o-mini for gate screening decisions. ~$0.016/call vs $0.001 for mini.
+    # Set PULSE_LLM_MODEL=gpt-4o-mini to revert to the cheaper mini model.
+    "openai": "gpt-4o",
     "groq": "llama-3.3-70b-versatile",
 }
 

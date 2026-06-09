@@ -43,6 +43,30 @@ def _compact_backend_supplement(brief: IntelligenceBrief) -> str:
     return text[:900]
 
 
+def _format_similar_confirmed_lps(brief: IntelligenceBrief) -> str:
+    """Render similar confirmed LP profiles as a compact prompt block with similarity scores."""
+    from contra.intelligence.lp_similarity import MIN_SIGNAL_SCORE
+
+    lps = brief.similar_confirmed_lps or []
+    if not lps:
+        return "(none found — database may not have enough comparable LP profiles yet)"
+    lines = []
+    for lp in lps:
+        score = lp.get("similarity_score", 0)
+        dims = ", ".join(lp.get("match_dimensions", [])) or "—"
+        archetype = lp.get("archetype", "unknown")
+        qualifier = "✓ strong match" if score >= MIN_SIGNAL_SCORE else "~ weak match"
+        lines.append(
+            f"  · {lp['name']} [{score}% similarity — {qualifier}] "
+            f"| archetype: {archetype} "
+            f"| geo: {lp['geography']} | EM appetite: {lp['em_appetite']} "
+            f"| AI appetite: {lp['ai_appetite']} | type: {lp['allocator_type']} "
+            f"| {lp['fund_deal_count']} fund LP deal(s) "
+            f"| matched dims: {dims}"
+        )
+    return "\n".join(lines)
+
+
 def _compact_drill_down(drill_results: List[Dict[str, Any]]) -> str:
     """Keep drill-down rows compact for small-context LLMs."""
     compact = []
@@ -78,6 +102,22 @@ def _assessment_text_blocks(assessment: GateAssessment) -> Dict[str, str]:
     }
 
 
+def _format_partial_match_deals(brief: IntelligenceBrief) -> str:
+    """Render low-confidence DB match investment deals for the prompt."""
+    if not brief.partial_match_deals:
+        return "(none — no low-confidence DB match with investment data)"
+    inv = brief.investment_summary or {}
+    total = inv.get("deal_count", len(brief.partial_match_deals))
+    fund_count = inv.get("fund_deal_count", 0)
+    header = (
+        f"LOW-CONFIDENCE MATCH (≈{brief.match_confidence:.0%}): "
+        f"{total} deal(s) found, {fund_count} fund LP deal(s), "
+        f"{total - fund_count} direct/SPV deal(s)"
+    )
+    lines = [header] + [f"  · {d}" for d in brief.partial_match_deals]
+    return "\n".join(lines)
+
+
 def _build_explain_prompt(
     name: str,
     brief: IntelligenceBrief,
@@ -87,6 +127,7 @@ def _build_explain_prompt(
     analyst_facts: Optional[List[str]] = None,
     allocation_evidence: str = "",
     nfx_context: Optional[str] = None,
+    screening_mode: str = "institutional",
 ) -> str:
     tpl = _load_yaml("gate_explain.yaml")
     template = tpl.get("user_template") or "{lp_name}\n{backend_json}\n{web_context}"
@@ -95,8 +136,18 @@ def _build_explain_prompt(
 
     nfx_block = nfx_context or "(not from NFX Signal)"
 
+    match_warning = ""
+    if brief.match_untrusted and brief.matched_name:
+        match_warning = (
+            f"⚠ UNRELIABLE MATCH: Backend resolved '{name}' to '{brief.matched_name}' "
+            f"(surname mismatch — likely different person). "
+            f"IGNORE all ICP tier, fit score, syndicate, and core gate data above. "
+            f"Base your assessment solely on web research and general knowledge."
+        )
+
     return template.format(
         lp_name=name,
+        screening_mode=screening_mode,
         recommendation=assessment.recommendation.upper(),
         signals_met=assessment.signals_met,
         signals_required=assessment.signals_required,
@@ -105,6 +156,7 @@ def _build_explain_prompt(
         signals_text=text_blocks["signals_text"],
         matched_name=brief.matched_name or "—",
         match_confidence=f"{brief.match_confidence:.2f}",
+        match_warning=match_warning,
         population=brief.population or "—",
         icp_tier=brief.icp_tier or "—",
         fit_score=brief.icp_fit_score if brief.icp_fit_score is not None else "—",
@@ -121,6 +173,8 @@ def _build_explain_prompt(
         analyst_facts_json=json.dumps(analyst_facts or []),
         drill_down_json=_compact_drill_down(drill_results),
         allocation_evidence=allocation_evidence or "(no investment history on record)",
+        partial_match_deals=_format_partial_match_deals(brief),
+        similar_confirmed_lps=_format_similar_confirmed_lps(brief),
         known_em_funds=(
             "Hustle Fund, Weekend Fund, Conviction, Village Global, Precursor Ventures, "
             "Afore Capital, Iterative, Saison Capital (+ similar EM / Fund-I vehicles)"
@@ -129,6 +183,40 @@ def _build_explain_prompt(
         web_context=web_context,
         nfx_context=nfx_block,
     )
+
+
+def _get_gate_llm_client():
+    """
+    Return the best available LLM client for gate decisions.
+
+    Priority (highest quality first):
+      1. GATE_LLM_PROVIDER / GATE_LLM_MODEL env vars (explicit gate override)
+      2. OPENAI_API_KEY → gpt-4o  (best structured-reasoning quality)
+      3. PULSE_LLM_PROVIDER default (Groq Llama / Anthropic / etc.)
+
+    To use GPT-4o for gate decisions: set OPENAI_API_KEY in .env and optionally
+    add GATE_LLM_PROVIDER=openai (or leave it — auto-detection kicks in).
+    GPT-4o costs ~$0.016/screen vs Groq free tier; batch of 38 ≈ $0.60.
+    """
+    import os
+    from agents.research.llm_client import LLMUnavailable, get_llm_client
+
+    # Explicit override
+    gate_provider = os.environ.get("GATE_LLM_PROVIDER", "").strip()
+    gate_model = os.environ.get("GATE_LLM_MODEL", "").strip()
+    if gate_provider:
+        return get_llm_client(provider=gate_provider, model=gate_model or None)
+
+    # Auto-prefer OpenAI gpt-4o when key is available — better reasoning quality
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if openai_key:
+        try:
+            return get_llm_client(provider="openai", model="gpt-4o")
+        except LLMUnavailable:
+            pass
+
+    # Fall back to the configured default provider
+    return get_llm_client()
 
 
 def explain(
@@ -140,6 +228,7 @@ def explain(
     analyst_facts: Optional[List[str]] = None,
     allocation_evidence: str = "",
     nfx_context: Optional[str] = None,
+    screening_mode: str = "institutional",
 ) -> GateExplanation:
     """
     Call the LLM as the primary decision-maker.
@@ -148,13 +237,14 @@ def explain(
     own llm_recommendation (yes/no/review) plus llm_core_gates assessed from web
     evidence — these can fill gaps the evaluator left as 'unknown'.
     """
-    from agents.research.llm_client import LLMUnavailable, get_llm_client
+    from agents.research.llm_client import LLMUnavailable
 
     try:
-        llm = get_llm_client()
+        llm = _get_gate_llm_client()
     except LLMUnavailable as exc:
         raise RuntimeError(
-            "LLM required for contra gate. Set PULSE_LLM_PROVIDER=anthropic and ANTHROPIC_API_KEY."
+            "LLM required for contra gate. Set PULSE_LLM_PROVIDER=groq/anthropic/openai "
+            "with a matching API key, or set GATE_LLM_PROVIDER explicitly."
         ) from exc
 
     system_cfg = _load_yaml("gate_explain.yaml")
@@ -162,13 +252,14 @@ def explain(
     prompt = _build_explain_prompt(
         name, brief, assessment, web_context, drill_results,
         analyst_facts, allocation_evidence, nfx_context,
+        screening_mode=screening_mode,
     )
 
     return llm.structured(
         prompt=prompt,
         response_model=GateExplanation,
         system=system,
-        max_tokens=1536,
+        max_tokens=1800,
     )
 
 

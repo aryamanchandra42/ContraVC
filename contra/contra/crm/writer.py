@@ -154,11 +154,11 @@ def get_lead_by_id(con, lead_id: str) -> CrmLead:
     return _row_to_lead(row, cols)
 
 
-def preview_lead_from_gate(con, session_id: str) -> Dict[str, Any]:
+def preview_lead_from_gate(con, session_id: str, *, override: bool = False) -> Dict[str, Any]:
     """Extract and merge CRM fields without writing."""
     session, result, brief_dict = _load_gate_session(session_id)
-    if not result.yes and not result.is_review:
-        raise ValueError("Cannot add LP with NO verdict to CRM")
+    if not result.yes and not result.is_review and not override:
+        raise ValueError("Cannot add LP with NO verdict to CRM (use override)")
     if brief_dict.get("in_crm") or _lead_exists(con, result.lp_name):
         raise ValueError(f"Already in CRM: {result.lp_name}")
 
@@ -174,16 +174,16 @@ def preview_lead_from_gate(con, session_id: str) -> Dict[str, Any]:
     return {"extraction": extraction.model_dump(), "lead": merged}
 
 
-def add_lead_from_gate(con, session_id: str) -> CrmLead:
+def add_lead_from_gate(con, session_id: str, *, override: bool = False) -> CrmLead:
     """LLM-extract CRM fields from gate session and insert lead."""
     session = get_session(session_id)
-    if session:
+    if session and not override:
         from contra.gate.persist import persist_from_session
         new_id = persist_from_session(con, session)
         if new_id:
             session.brief_dict["allocator_id"] = new_id
 
-    preview = preview_lead_from_gate(con, session_id)
+    preview = preview_lead_from_gate(con, session_id, override=override)
     if not preview["lead"].get("allocator_id") and session:
         aid = session.brief_dict.get("allocator_id")
         if aid:

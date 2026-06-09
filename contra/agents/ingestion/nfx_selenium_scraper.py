@@ -473,6 +473,7 @@ def _run_gate_for_record(
             analyst_facts=analyst_facts,
             nfx_url=record.nfx_url,
             compact_web=True,
+            screening_mode="nfx_individual",
         )
         return {
             "name": record.investor_name,

@@ -23,7 +23,11 @@ from contra.intelligence.brief import IntelligenceBrief
 
 # Negative-inference tags that justify pushing a verdict downward.
 # Strong negatives are positive evidence of MISFIT (not mere absence of data).
-_STRONG_NEGATIVES = {"pe_only", "direct_only", "no_venture"}
+# Synced with the negative_flags list in gate_explain.yaml.
+_STRONG_NEGATIVES = {
+    "pe_only", "direct_only", "no_venture",
+    "no_fund_lp_history", "angel_only", "nfx_angel_only",
+}
 
 # Behavioral archetypes that count against fit when no positive appetite exists.
 _UNFAVORABLE_ARCHETYPES = {"corporate_investor"}
@@ -160,8 +164,8 @@ def _eval_signals(
     sp = brief.syndicate_profile or {}
     gc = brief.graph_connectivity or {}
 
-    # Detect whether this LP has any database record at all
-    no_db_record = not brief.allocator_id
+    # Treat as no record when match is untrusted (likely wrong person)
+    no_db_record = not brief.allocator_id or brief.match_untrusted
     match_info = (
         f"Matched '{brief.matched_name}' (confidence {brief.match_confidence:.0%}, {brief.match_method})"
         if brief.matched_name else
@@ -173,7 +177,12 @@ def _eval_signals(
         brief.icp_tier in ("tier_1", "tier_2")
         and brief.core_pass is True
     )
-    if no_db_record:
+    if brief.match_untrusted and brief.allocator_id:
+        icp_detail = (
+            f"Match to '{brief.matched_name}' is unreliable (surname mismatch) — "
+            f"ICP/syndicate data suppressed to avoid using wrong person's profile. {match_info}."
+        )
+    elif no_db_record:
         icp_detail = f"{match_info}. No ICP score possible without a database record."
     elif brief.icp_tier:
         icp_detail = f"ICP {brief.icp_tier}, fit={brief.icp_fit_score:.2f}, core_pass={brief.core_pass}. {match_info}."
@@ -311,6 +320,45 @@ def _eval_signals(
         ),
     ))
 
+    # Signal 6d: Precedent LP pattern match — similar confirmed LPs in DB.
+    # Fires only when ≥MIN_SIGNAL_COUNT anchors score above the MIN_SIGNAL_SCORE threshold,
+    # ensuring the signal reflects genuine archetype similarity, not just LP volume.
+    from contra.intelligence.lp_similarity import MIN_SIGNAL_COUNT, MIN_SIGNAL_SCORE
+
+    similar_lps = brief.similar_confirmed_lps or []
+    qualifying = [lp for lp in similar_lps if lp.get("similarity_score", 0) >= MIN_SIGNAL_SCORE]
+    similar_met = len(qualifying) >= MIN_SIGNAL_COUNT
+
+    if not similar_lps:
+        similar_detail = "No comparable LP profiles found in database."
+    elif not qualifying:
+        names = ", ".join(lp.get("name", "?") for lp in similar_lps[:3])
+        top_score = max((lp.get("similarity_score", 0) for lp in similar_lps), default=0)
+        similar_detail = (
+            f"{len(similar_lps)} candidate(s) found but none score ≥{MIN_SIGNAL_SCORE} "
+            f"(best: {top_score}). Examples: {names}. "
+            "Archetype precedent inconclusive — insufficient similarity for positive signal."
+        )
+    else:
+        names = ", ".join(
+            f"{lp['name']} ({lp.get('similarity_score', '?')}%)"
+            for lp in sorted(qualifying, key=lambda x: -x.get("similarity_score", 0))[:3]
+        )
+        dims_example = ", ".join(qualifying[0].get("match_dimensions", [])[:3])
+        similar_detail = (
+            f"{len(qualifying)} high-similarity anchor(s) (≥{MIN_SIGNAL_SCORE} score) "
+            f"with confirmed fund LP history. Top: {names}. "
+            f"Matched on: {dims_example or 'multiple dimensions'}. "
+            "Use as calibration baseline — does this LP match their archetype?"
+        )
+    signals.append(GateSignal(
+        id="similar_lp_precedent",
+        label="Similar Confirmed LP Precedent",
+        met=similar_met,
+        source="backend",
+        detail=similar_detail,
+    ))
+
     # Signal 7: Analyst-provided facts (capped at 2 signal points).
     # met=True ONLY when the fact explicitly confirms fund LP behavior.
     # Contextual metadata (NFX URL, firm name, location, check size) does NOT count —
@@ -355,6 +403,7 @@ def evaluate(
     brief: IntelligenceBrief,
     analyst_facts: Optional[List[str]] = None,
     appetite: Optional[AppetiteProfile] = None,
+    screening_mode: str = "institutional",
 ) -> GateAssessment:
     """
     Produce a GateAssessment from the IntelligenceBrief without calling the LLM.
@@ -362,6 +411,7 @@ def evaluate(
     analyst_facts: plain-English facts the analyst provided via chat (e.g. "They backed Neon Fund I").
     appetite: inferred appetite from the LLM explain pass (None on the pre-LLM pass).
               Adds graded appetite signals and applies soft negative/archetype downgrades.
+    screening_mode: "nfx_individual" or "institutional" — governs verdict strictness.
     """
     analyst_facts = analyst_facts or []
     hard_blocks: List[str] = []
@@ -401,7 +451,7 @@ def evaluate(
 
     # ---- Soft appetite-based adjustments (never override hard blocks) -------
     if not hard_blocks:
-        recommendation = apply_appetite_adjustments(recommendation, appetite)
+        recommendation = apply_appetite_adjustments(recommendation, appetite, screening_mode)
 
     return GateAssessment(
         recommendation=recommendation,
@@ -421,13 +471,15 @@ def evaluate(
 def apply_appetite_adjustments(
     recommendation: str,
     appetite: Optional[AppetiteProfile],
+    screening_mode: str = "institutional",
 ) -> str:
     """
     Nudge a non-blocked recommendation using inferred appetite.
 
     Negative inference (positive evidence of misfit) pushes the verdict DOWN:
-      - strong negatives (pe_only / direct_only / no_venture): yes→review, review→no
-      - soft negatives only:                                    yes→review
+      - strong negatives: yes→review, review→no
+      - nfx_individual + no_fund_lp_history: forces → no regardless of current level
+      - soft negatives only: yes→review
 
     Archetype tie-breaker: a clearly unfavorable archetype (e.g. corporate_investor)
     with zero positive appetite nudges yes→review.
@@ -440,6 +492,10 @@ def apply_appetite_adjustments(
 
     rec = recommendation
     flags = {f.strip().lower() for f in (appetite.negative_flags or [])}
+
+    # In nfx_individual mode, any strong negative is conclusive — force NO directly.
+    if screening_mode == "nfx_individual" and (flags & _STRONG_NEGATIVES):
+        return "no"
 
     if flags & _STRONG_NEGATIVES:
         rec = "review" if rec == "yes" else "no"

@@ -25,6 +25,49 @@ system: |
     that they run one or co-invest deals.
 
   ============================================================================
+  SCREENING MODE — READ THIS BEFORE SETTING YOUR VERDICT
+  ============================================================================
+  The screening_mode field in the prompt tells you the call surface:
+
+  "nfx_individual": People from an NFX Signal batch export (mostly angels/micro-GPs).
+    - Default posture: lean "no", not "review", when C1 is unconfirmed.
+    - GP/Principal at a VC fund + no external LP history → "no" (not "review").
+    - ZERO-EVIDENCE RULE: If you find absolutely nothing — no LP commitments, all appetite
+      dimensions unknown, no positive indicators, empty allocation_evidence — that is NOT
+      ambiguous. Set llm_recommendation="no". "review" requires at least ONE plausible
+      signal of LP activity (e.g. a family office role, a fund-adjacent position with
+      ambiguous history, or an article mentioning fund investing). Pure absence is not
+      ambiguous — it is a clear NO in nfx_individual mode.
+    - "review" is only appropriate when there is plausible but unconfirmed LP activity
+      (e.g. a family office employee, or an angel with multiple fund-adjacent roles).
+    - "yes" requires concrete LP commitment evidence — same bar as always.
+
+  "institutional": Named entity screens (family offices, FoFs, endowments, manual searches).
+    - Default posture: lean "review" not "no" when C1 is uncertain.
+    - Plausible institutional LP that hasn't been confirmed → "review" with a clear
+      flip condition.
+    - "no" when web explicitly shows direct-only, PE-only, or wrong sector/geography.
+
+  ============================================================================
+  GP ≠ LP — THE MOST COMMON MISTAKE — READ CAREFULLY
+  ============================================================================
+  CANONICAL ANTI-PATTERN (Will Bricker at Hustle Fund):
+    - Will Bricker is a Principal at Hustle Fund. Hustle Fund invests in pre-seed
+      North American software startups.
+    - WRONG: "Hustle Fund's investments in pre-seed software startups" as allocation_evidence
+      for Will Bricker. That is Hustle Fund's portfolio — not Will Bricker's LP activity.
+    - WRONG: em_appetite=moderate because Hustle Fund is an emerging manager. Will Bricker
+      works AT an emerging manager; he has not been shown to LP INTO one.
+    - WRONG: "potential EM interest" in reasons. That is inference from employment, not evidence.
+    - CORRECT: C1=unknown or fail, C2=unknown, em_appetite=unknown, venture_appetite=unknown,
+      no_fund_lp_history flag set, verdict="no" (nfx_individual) or "review" (institutional).
+
+  THE RULE: A person's employer fund's portfolio is NEVER that person's allocation_evidence.
+    allocation_evidence must list EXTERNAL funds where this person personally committed LP capital.
+    "LP in Hustle Fund" or "Anchor LP in Weekend Fund II" are valid allocation_evidence entries.
+    "Hustle Fund's investments in AI startups" is NOT.
+
+  ============================================================================
   VERDICTS — BE CALIBRATED, NOT OPTIMISTIC
   ============================================================================
   - "yes"    — concrete evidence they write LP checks into VC funds AND fit the thesis.
@@ -32,67 +75,84 @@ system: |
                AND (b) AI/tech or relevant sector, AND (c) relevant geography.
                A GP title alone, angel deal history, or NFX Signal presence is NOT sufficient.
   - "review" — plausible LP profile but C1 (fund LP behavior) is unconfirmed, OR one
-               dimension is unclear. Correct for GPs of micro-funds, family offices with
-               mixed signals, or angels who MIGHT also do fund LP deals.
+               dimension is unclear. Correct for GPs of micro-funds with mixed signals,
+               family offices with ambiguous data, or angels who MIGHT also do fund LP deals.
+               In nfx_individual mode: reserve "review" for genuinely ambiguous cases only.
   - "no"     — clear evidence of direct-only / PE-only investing, wrong sector, wrong
                geography, OR no meaningful web presence AND no fund LP evidence found.
-               Do NOT "no" purely for database absence — but DO "no" when web research
-               confirms direct-only behavior.
+               In nfx_individual mode: GP/Principal + no LP evidence = "no", not "review".
+               Do NOT "no" purely for database absence in institutional mode.
 
-  DEFAULT POSTURE FOR NFX SIGNAL BATCH: lean "review" not "yes" unless you find
-  explicit fund LP evidence. "yes" requires real positive proof, not absence of negatives.
+  DEFAULT POSTURE FOR NFX SIGNAL BATCH (nfx_individual): lean "no" not "review" when
+  C1 is unconfirmed and this person is a GP/Principal/Partner at a VC fund. "review"
+  requires genuinely ambiguous evidence of possible LP activity, not just absence of a NO.
 
   PROBABILISTIC CORE GATE ASSESSMENT (c1_status..c4_status + c1_evidence..c4_evidence):
-  The evaluator marks gates "unknown" when the LP is not in its sheets. You should assess
-  C1-C4 yourself from web evidence and general knowledge. Set each cN_status to
-  "pass" / "fail" / "unknown" and write a one-line cN_evidence string for each.
+  Assess C1-C4 yourself from web evidence.
 
-    - C1 (VC fund LP): Do they WRITE LP CHECKS INTO VC FUNDS?
-      PASS: documented LP commitments in VC funds, fund-of-funds LP, family office with
-            known fund allocations, institution known to back VC funds.
-      FAIL: pure angel / direct investor, PE-only, no evidence of fund commitments.
+    - C1 (VC fund LP): Do they WRITE LP CHECKS INTO VC FUNDS as a limited partner?
+      PASS: documented LP commitments in VC funds, confirmed fund-of-funds LP, family office
+            with known fund allocations, institution known to back VC funds.
+      FAIL: pure angel / direct investor, PE-only, running a VC fund with no LP activity elsewhere.
       UNKNOWN: GP at a fund (they run one, but no evidence they LP into others), angel
-               investor with no fund LP history found. Do NOT auto-pass C1 for GPs.
-      Key distinction: Running a fund ≠ being an LP in a fund.
+               investor with no fund LP history found.
+      Key distinction: Running a fund ≠ being an LP in a fund. Employment at a VC ≠ LP activity.
 
-    - C2 (emerging manager): Any sign they back first/second-time or emerging managers
-      as LP? (Not just co-investing with them — actually committing LP capital.)
+    - C2 (emerging manager): Do they back first/second-time or emerging managers AS LP?
+      PASS ONLY when: documented LP capital committed to first-/second-time or emerging GPs.
+      UNKNOWN is the default. FAIL when only GP role or only direct angel deals are found.
+      FORBIDDEN: "PASS because they work at an emerging manager."
+      FORBIDDEN: "PASS because sector articles mention emerging managers."
+
     - C3 (AI/tech): Does their thesis or portfolio touch AI, robotics, deep tech, software?
     - C4 (geography): Do they invest in SE Asia, North America, or Middle East (or globally)?
 
   Examples:
-    - "Richard Liu, Partner at GGV Capital" → C1 UNKNOWN (GP, but unknown if LP elsewhere),
-      C3 pass, C4 pass. Recommendation "review" unless LP evidence found.
+    - "Will Bricker, Principal at Hustle Fund" → C1 UNKNOWN (GP, not LP), C2 UNKNOWN
+      (works at EM, not LP into one), C3 moderate (Hustle Fund is software-focused),
+      C4 pass (North America). Recommendation "no" (nfx_individual) or "review" (institutional).
     - "Jane Doe, LP in Hustle Fund + Village Global" → C1 pass (documented fund LP),
-      C2 pass, C3 moderate. Strong "yes" candidate.
+      C2 pass (backed EMs as LP), C3 moderate. Strong "yes" candidate.
     - "John Smith, angel investor, 20 direct startup deals on NFX Signal" → C1 FAIL
-      (direct-only confirmed), llm_recommendation "no" or "review" with c1_fail noted.
-    - "No web presence, common name" → all unknown, recommendation "review".
+      (direct-only confirmed), llm_recommendation "no" with no_fund_lp_history flagged.
+    - "No web presence, common name" → all unknown, recommendation "review" (institutional)
+      or "no" (nfx_individual).
 
   WRITING THE EXPLANATION:
   1. reasons[]: specific, cited bullets. Reference what you actually found.
      FORBIDDEN: "insufficient evidence", vague praise, generic VC sector statements.
-     GOOD: "C1 unknown — Josh Elman is GP at Greylock but web shows no evidence of LP
-     commitments to external funds; NFX angel profile does not confirm fund LP behavior."
+     FORBIDDEN: "potential interest in", "suggests appetite", "may have interest in".
+     GOOD: "C1 unknown — Will Bricker is GP at Hustle Fund; no evidence of LP commitments
+     to external funds; NFX angel profile does not confirm fund LP behavior."
      GOOD: "C1 pass — confirmed LP in Hustle Fund (2022) and Weekend Fund (2023) per Crunchbase."
   2. backend_evidence[]: cite advisory data points actually present.
   3. online_evidence[]: cite specific web findings. If web returned nothing useful, say so.
   4. conflicts[]: note where advisory signals and web evidence disagree.
   5. summary: two plain-English sentences.
-     First: your recommendation and the single most important reason.
-     Second: what specific fact would flip a "review" to "yes" (or "yes" to "no").
-     FORBIDDEN: do not start with "Based on", do not use generic closing advice.
+     For NO verdicts: Sentence 1 = decisive action + single most important reason.
+                      Sentence 2 = what would change the verdict (if anything obvious).
+                      FORBIDDEN: "further research needed", "worth monitoring", "uncertain",
+                      "may be worth", "further review". NO verdicts must be decisive.
+     For REVIEW verdicts: Sentence 1 = why we're unsure (specific gap, not "lacks evidence").
+                           Sentence 2 = MUST be: "Flip to YES if: [the ONE specific verifiable fact]."
+                           The flip condition must be concrete — NOT "if more info is found."
+                           Good: "Flip to YES if: confirmed LP in at least one VC fund is documented."
+                           Bad: "Further research would help clarify this."
+                           FORBIDDEN: "further research needed", "further review needed",
+                           "additional investigation", "more context needed".
+     For YES verdicts: Sentence 1 = why yes. Sentence 2 = any remaining risks.
+     FORBIDDEN: do not start with "Based on", do not use "further research needed" anywhere.
 
   WEB SIGNAL EXTRACTION:
   Set web_em_ai_vc=true ONLY when web research shows BOTH: (a) documented LP commitments
   to emerging-manager / Fund I-II VC funds, AND (b) AI/tech focus. NFX angel activity alone
-  does NOT satisfy (a).
+  does NOT satisfy (a). GP employment does NOT satisfy (a).
 
   ============================================================================
-  APPETITE ENGINE — INFER FROM ACTUAL FUND LP DECISIONS, NOT ANGEL DEALS
+  APPETITE ENGINE — INFER FROM ACTUAL FUND LP DECISIONS, NOT GP ROLES
   ============================================================================
-  The central skill is reading appetite from HISTORICAL FUND LP DECISIONS, not
-  angel investments or GP roles. An angel check into a startup is NOT fund LP appetite.
+  The central skill is reading appetite from HISTORICAL FUND LP DECISIONS as a LIMITED PARTNER.
+  An angel check into a startup is NOT fund LP appetite. Employment at a VC is NOT fund LP appetite.
 
   REASON FROM FUND LP DECISIONS:
     - LP in Hustle Fund + Weekend Fund + Conviction → STRONG EM appetite, STRONG Fund-I
@@ -103,11 +163,14 @@ system: |
 
   Grade EACH appetite dimension as strong / moderate / weak / none / unknown:
     - em_appetite        — backs emerging / first- and second-time managers AS LP
+                           UNKNOWN is the default when no LP commitment evidence found.
+                           STRONG/MODERATE requires ≥1 named external LP commitment.
     - fund_i_appetite    — writes LP checks into Fund I (anchor / first close)
     - ai_tech_appetite   — AI, robotics, deep tech, software (via backed funds or portfolio)
     - venture_appetite   — commits to VC funds as an LP (vs direct / PE / public)
     - geography_appetite — SE Asia, North America, or Middle East exposure
-  Use "unknown" when fund LP history is not found — do NOT conflate angel deals with fund LP.
+  Use "unknown" when fund LP history is not found. Do NOT conflate angel deals, GP employment,
+  or general sector interest with fund LP appetite.
 
   RECENCY: weight recent activity (last 24 months) far more than old activity.
   If all evidence is old (>5 years), lower confidence and lean "review".
@@ -123,8 +186,13 @@ system: |
   "pe_only", "direct_only", "no_venture", "established_managers_only",
   "no_fund_lp_history", "angel_only", "min_check_too_large", "wrong_geography",
   "inactive_recent", "nfx_angel_only" (active on NFX Signal as angel, no fund LP found).
-  Strong negatives (pe_only, direct_only, no_venture, angel_only with no fund LP) → "no".
+  Strong negatives (pe_only, direct_only, no_venture, no_fund_lp_history, angel_only,
+  nfx_angel_only) → "no" in nfx_individual mode or review→no in institutional mode.
   Soft negatives → "review". You MUST have looked for negatives before returning "yes".
+
+  Set no_fund_lp_history when: web research confirms GP role / direct-only investing
+  with no external LP commitments found. This is NOT the same as "not found in DB" —
+  only set it when web research actively confirms the absence of LP behavior.
 
   SIMILARITY TO MYASIAVC:
   Fund I, ~$30M, AI-native / robotics, pre-seed to Series A, emerging GP,
@@ -132,10 +200,28 @@ system: |
   Set myasiavc_similarity (high/medium/low/none) and explain with their actual backings.
   "high" requires: emerging GP + Fund I + AI/tech + relevant geography ALL confirmed.
 
-  ALLOCATION EVIDENCE: list specific fund LP commitments the inference rests on.
+  LP COMMITMENTS FOUND:
+  List in lp_commitments_found ONLY external LP commitments with source. Format each as:
+  "LP in [Fund Name] ([year if known]) — [source]"
+  Example: "LP in Hustle Fund (2022) — Crunchbase"
+  Leave empty if no external LP commitments confirmed. NEVER include employer's fund.
+
+  PRIMARY BLOCKER:
+  For NO verdicts, set primary_blocker to a single concise phrase explaining why.
+  Examples: "GP at Hustle Fund — no external LP commitments found"
+            "Direct-only angel investor — no VC fund LP history"
+            "PE-only investor — no venture fund exposure"
+  Leave empty for yes/review verdicts.
+
+  ALLOCATION EVIDENCE:
+  List in allocation_evidence ONLY external fund LP commitments the inference rests on.
+  NEVER list the employer's fund portfolio companies as allocation_evidence.
 
 user_template: |
   LP TO SCREEN: {lp_name}
+
+  SCREENING MODE: {screening_mode}
+  (nfx_individual = NFX Signal batch, lean NO for GP+no-LP; institutional = named entity, lean REVIEW)
 
   === NFX SIGNAL CONTEXT (metadata only — does NOT count as a gate signal) ===
   {nfx_context}
@@ -157,6 +243,7 @@ user_template: |
 
   === BACKEND PROFILE (may be empty if LP not in database) ===
   Match: {matched_name} (confidence: {match_confidence})
+  {match_warning}
   Population: {population}
   ICP tier: {icp_tier} | fit: {fit_score} | core_pass: {core_pass} | excluded: {excluded}
   Exclusion: {exclusion_reason}
@@ -176,6 +263,22 @@ user_template: |
   === DB ALLOCATION HISTORY (recency-bucketed; empty if none on record) ===
   {allocation_evidence}
 
+  === LOW-CONFIDENCE DB MATCH — INVESTMENT DEALS (treat as CONTEXT, not confirmed identity) ===
+  {partial_match_deals}
+  NOTE: These deals come from a fuzzy name match below the reliability threshold.
+  The person shown MAY be the same individual. Use to detect investment TYPE (angel vs fund LP)
+  but do NOT treat as confirmed data. If all deals are direct startup investments with no fund LP
+  deals, this supports an "angel_only" or "nfx_angel_only" flag. Do not cite the matched name.
+
+  === SIMILAR CONFIRMED LP PROFILES IN OUR DATABASE (calibration anchors) ===
+  These are real LPs from our network who have confirmed fund LP commitments and
+  have similar geography / sector profiles to the LP being screened.
+  Use them as a calibration baseline — does this LP look more or less like these
+  confirmed fund investors? If this LP's profile is WEAKER than these, that is a
+  negative signal. If it is SIMILAR or STRONGER, that is a positive signal.
+  Do NOT treat these as introductions or warm paths — they are archetype anchors only.
+  {similar_confirmed_lps}
+
   === KNOWN EMERGING-MANAGER FUND REFERENCE LIST (anchor inference; not exhaustive) ===
   {known_em_funds}
 
@@ -183,17 +286,23 @@ user_template: |
   {web_context}
 
   === TASK ===
-  Make your own holistic decision. Infer appetite from allocation BEHAVIOR. Return:
-  - llm_recommendation (yes / review / no)
+  Make your own holistic decision. Infer appetite from allocation BEHAVIOR only.
+  Remember the GP ≠ LP rule: employer fund's portfolio ≠ this person's LP activity.
+  Return:
+  - llm_recommendation (yes / review / no) — follow screening_mode defaults above
   - c1_status, c2_status, c3_status, c4_status (each pass/fail/unknown) with matching
     c1_evidence..c4_evidence one-line strings — your probabilistic C1-C4 assessment
   - em_appetite, fund_i_appetite, ai_tech_appetite, venture_appetite, geography_appetite
-    (each strong/moderate/weak/none/unknown) with matching *_appetite_evidence strings
+    (each strong/moderate/weak/none/unknown) with matching *_appetite_evidence strings.
+    em_appetite and fund_i_appetite MUST be "unknown" unless you can cite an external LP commitment.
   - archetype (+ archetype_evidence)
-  - negative_flags[] (+ negative_evidence) — you MUST actively look for disqualifiers
+  - negative_flags[] (+ negative_evidence) — you MUST actively look for disqualifiers.
+    Set no_fund_lp_history when GP role / direct-only investing confirmed with no external LP found.
   - myasiavc_similarity (high/medium/low/none) + similarity_rationale
-  - allocation_evidence[] — the specific managers/companies backed your inference rests on
+  - lp_commitments_found[] — ONLY external LP fund commitments with source (empty if none)
+  - primary_blocker — decisive phrase for NO verdicts (empty for yes/review)
+  - allocation_evidence[] — ONLY external LP commitments (not employer portfolio)
   - confidence, reasons, backend_evidence, online_evidence, conflicts, summary
   - web_em_ai_vc + web_em_ai_evidence if applicable
-  Remember: missing from the database is NOT a reason to say "no". Infer appetite from what
-  they have historically backed, weight recent activity most, and search for negatives.
+  Remember: missing from the database is NOT a reason to say "no" (institutional mode).
+  In nfx_individual mode: GP + no LP history = "no". Infer from actual allocation behavior.
