@@ -1,20 +1,23 @@
 services:
   - type: web
     name: contra-api
-    env: python
-    region: singapore
+    runtime: python
+    region: oregon
     plan: free
     rootDir: contra
-    pythonVersion: "3.11.9"
-    buildCommand: poetry install -E gate -E api
-    startCommand: poetry run python -m uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -e ".[gate,api]"
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: PULSE_LLM_PROVIDER
-        value: groq
+        value: anthropic
       - key: PULSE_LLM_AUTO_SWITCH
         value: "true"
       - key: PULSE_SEARCH_PROVIDER
         value: tavily
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_API_KEY_2
