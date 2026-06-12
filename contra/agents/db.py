@@ -5,10 +5,14 @@ Usage:
     from agents.db import get_conn
     con = get_conn()
     con.execute("SELECT * FROM v_lp_gate_context").fetchdf()
+
+Cloud mode: set MOTHERDUCK_TOKEN env var to use MotherDuck instead of a local file.
+The database name on MotherDuck is always "contra".
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import duckdb
@@ -17,11 +21,22 @@ ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "contra.duckdb"
 SCHEMA_DIR = ROOT / "schema"
 
+_MOTHERDUCK_TOKEN = os.getenv("MOTHERDUCK_TOKEN", "").strip()
+_MOTHERDUCK_DB = "md:contra"
+
+
+def _is_cloud() -> bool:
+    return bool(_MOTHERDUCK_TOKEN)
+
 
 def get_conn(db_path: Path | None = None, read_only: bool = False) -> duckdb.DuckDBPyConnection:
-    """Return a DuckDB connection. Creates and bootstraps the DB if it doesn't exist."""
-    path = db_path or DB_PATH
-    con = duckdb.connect(str(path), read_only=read_only)
+    """Return a DuckDB connection. Uses MotherDuck when MOTHERDUCK_TOKEN is set."""
+    if _is_cloud():
+        # MotherDuck does not support read_only flag; all connections are writable.
+        con = duckdb.connect(_MOTHERDUCK_DB)
+    else:
+        path = db_path or DB_PATH
+        con = duckdb.connect(str(path), read_only=read_only)
     if not read_only:
         _bootstrap(con)
     return con

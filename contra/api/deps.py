@@ -11,7 +11,7 @@ from typing import Generator, Optional
 
 import duckdb
 
-from agents.db import DB_PATH, ensure_views, get_conn
+from agents.db import DB_PATH, _is_cloud, ensure_views, get_conn
 
 _lock = threading.Lock()
 _shared_con: Optional[duckdb.DuckDBPyConnection] = None
@@ -22,8 +22,8 @@ def _shared_connection() -> duckdb.DuckDBPyConnection:
     global _shared_con
     with _lock:
         if _shared_con is None:
-            # Bootstrap schema + migrations (raw connect skips views/tables).
-            _shared_con = get_conn(db_path=DB_PATH, read_only=False)
+            # Cloud mode: MotherDuck connection; local mode: file-based DuckDB.
+            _shared_con = get_conn(db_path=None if _is_cloud() else DB_PATH, read_only=False)
             ensure_views(_shared_con)
         return _shared_con
 
