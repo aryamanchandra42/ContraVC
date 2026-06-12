@@ -166,6 +166,13 @@ class GateResult(BaseModel):
     # PitchBook enrichment status: "fetched" | "not_found" | "no_cookies" | "expired"
     pitchbook_status: str = "no_cookies"
 
+    # Verdict provenance — which model decided, and whether the strong-model
+    # escalation tier was used (yes/review triage verdicts are re-decided by it)
+    verdict_model: str = ""
+    escalated: bool = False
+    # Evidence-verifier notes (e.g. unverifiable LP commitment claims removed)
+    verification_notes: List[str] = Field(default_factory=list)
+
     # Investment overlay data — surfaced in the UI's embedded investment panels
     # Deal names from a low-confidence DB match (shown with caveat: may not be this person)
     partial_match_deals: List[str] = Field(default_factory=list)
@@ -190,12 +197,17 @@ GateVerdict = GateResult
 # LLM extraction schemas (internal use by verdict.py and chat.py)
 # ---------------------------------------------------------------------------
 
+_EVIDENCE_LINE_MAX = 280
+_SUMMARY_MAX = 400
+
+
 class GateExplanation(BaseModel):
     """
     Schema returned by the LLM explain pass — the LLM is the primary decision-maker.
 
     Core gate assessments are FLAT scalar fields (not a nested list) so that small
     JSON-mode models (e.g. Groq llama-3.1-8b) can fill them reliably.
+    Evidence strings are capped so structured output fits within max_tokens.
     """
     model_config = ConfigDict(extra="forbid")
 
@@ -203,62 +215,62 @@ class GateExplanation(BaseModel):
     # (except hard blocks, which always win)
     llm_recommendation: Literal["yes", "no", "review"]
     confidence: Literal["high", "medium", "low"]
-    reasons: List[str] = Field(min_length=1, max_length=8)
-    backend_evidence: List[str] = Field(default_factory=list)
-    online_evidence: List[str] = Field(default_factory=list)
-    conflicts: List[str] = Field(default_factory=list)
-    summary: str
+    reasons: List[str] = Field(min_length=1, max_length=6)
+    backend_evidence: List[str] = Field(default_factory=list, max_length=6)
+    online_evidence: List[str] = Field(default_factory=list, max_length=6)
+    conflicts: List[str] = Field(default_factory=list, max_length=4)
+    summary: str = Field(max_length=_SUMMARY_MAX)
 
     # LLM-assessed core gates from web evidence — fills gaps the evaluator left as unknown.
     # Flat fields keep the schema simple for small models.
     c1_status: Literal["pass", "fail", "unknown"] = "unknown"
-    c1_evidence: str = ""
+    c1_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
     c2_status: Literal["pass", "fail", "unknown"] = "unknown"
-    c2_evidence: str = ""
+    c2_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
     c3_status: Literal["pass", "fail", "unknown"] = "unknown"
-    c3_evidence: str = ""
+    c3_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
     c4_status: Literal["pass", "fail", "unknown"] = "unknown"
-    c4_evidence: str = ""
+    c4_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
 
     # Web signal extraction — used to optionally add a web signal on re-eval
     web_em_ai_vc: bool = False
-    web_em_ai_evidence: str = ""
+    web_em_ai_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
 
     # ----- Appetite Engine (flat fields keep the schema small-model friendly) -----
     # Graded appetite inferred from historical allocation behavior + one-line evidence.
     em_appetite: AppetiteLevel = "unknown"
-    em_appetite_evidence: str = ""
+    em_appetite_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
     fund_i_appetite: AppetiteLevel = "unknown"
-    fund_i_appetite_evidence: str = ""
+    fund_i_appetite_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
     ai_tech_appetite: AppetiteLevel = "unknown"
-    ai_tech_appetite_evidence: str = ""
+    ai_tech_appetite_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
     venture_appetite: AppetiteLevel = "unknown"
-    venture_appetite_evidence: str = ""
+    venture_appetite_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
     geography_appetite: AppetiteLevel = "unknown"
-    geography_appetite_evidence: str = ""
+    geography_appetite_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
 
     # Behavioral archetype
     archetype: Archetype = "unknown"
-    archetype_evidence: str = ""
+    archetype_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
 
     # Negative inference — disqualifiers actively searched for (may be empty)
-    negative_flags: List[str] = Field(default_factory=list)
-    negative_evidence: str = ""
+    negative_flags: List[str] = Field(default_factory=list, max_length=6)
+    negative_evidence: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
 
     # Explainable similarity to the MyAsiaVC manager profile
     myasiavc_similarity: Literal["high", "medium", "low", "none"] = "none"
-    similarity_rationale: str = ""
+    similarity_rationale: str = Field(default="", max_length=_EVIDENCE_LINE_MAX)
 
     # Cited allocation decisions (managers/companies backed) the inference rests on
-    allocation_evidence: List[str] = Field(default_factory=list)
+    allocation_evidence: List[str] = Field(default_factory=list, max_length=6)
 
     # Explicit external LP fund commitments confirmed (named fund + LP role, not employer portfolio)
     # Example: ["LP in Hustle Fund (2022)", "Anchor LP in Weekend Fund II (2023)"]
-    lp_commitments_found: List[str] = Field(default_factory=list)
+    lp_commitments_found: List[str] = Field(default_factory=list, max_length=6)
 
     # Single decisive phrase for NO verdicts (empty for yes/review)
     # Example: "GP at Hustle Fund — no external VC fund LP commitments found"
-    primary_blocker: str = ""
+    primary_blocker: str = Field(default="", max_length=200)
 
     def llm_core_gates(self) -> List[CoreGateCheck]:
         """Reconstruct CoreGateCheck objects from the flat scalar fields."""

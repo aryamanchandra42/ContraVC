@@ -34,20 +34,7 @@ def _bootstrap(con: duckdb.DuckDBPyConnection) -> None:
 
     if ddl_path.exists():
         con.execute(ddl_path.read_text(encoding="utf-8"))
-    from agents.db_migrations import (
-        migrate_icp_scores_v41,
-        migrate_signal_expansion,
-        migrate_pipeline_runs_stage_check,
-        migrate_contra_extension,
-        migrate_crm_leads,
-        migrate_crm_dismissed,
-    )
-    migrate_icp_scores_v41(con)
-    migrate_signal_expansion(con)
-    migrate_pipeline_runs_stage_check(con)
-    migrate_contra_extension(con)
-    migrate_crm_leads(con)
-    migrate_crm_dismissed(con)
+    _run_migrations(con)
     if views_path.exists():
         try:
             con.execute(views_path.read_text(encoding="utf-8"))
@@ -56,11 +43,37 @@ def _bootstrap(con: duckdb.DuckDBPyConnection) -> None:
             pass
 
 
+def _run_migrations(con: duckdb.DuckDBPyConnection) -> None:
+    from agents.db_migrations import (
+        migrate_icp_scores_v41,
+        migrate_signal_expansion,
+        migrate_pipeline_runs_stage_check,
+        migrate_contra_extension,
+        migrate_crm_leads,
+        migrate_crm_dismissed,
+        migrate_crm_gate_reviews,
+        migrate_lp_dossiers,
+        migrate_crm_outreach,
+    )
+    migrate_icp_scores_v41(con)
+    migrate_signal_expansion(con)
+    migrate_pipeline_runs_stage_check(con)
+    migrate_contra_extension(con)
+    migrate_crm_leads(con)
+    migrate_crm_dismissed(con)
+    migrate_crm_gate_reviews(con)
+    migrate_lp_dossiers(con)
+    migrate_crm_outreach(con)
+
+
 def ensure_views(con) -> None:
-    """Apply LLM navigation views (safe to call on read-only if views already exist)."""
+    """Apply pending migrations + SQL views (idempotent; safe on API warm start)."""
+    if getattr(con, "read_only", False):
+        return
     views_path = SCHEMA_DIR / "views.sql"
-    if views_path.exists() and not getattr(con, "read_only", False):
-        try:
+    try:
+        _run_migrations(con)
+        if views_path.exists():
             con.execute(views_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+    except Exception:
+        pass

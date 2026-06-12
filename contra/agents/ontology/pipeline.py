@@ -179,8 +179,11 @@ def _build_extractor_chain() -> List[OntologyExtractor]:
         HeuristicExtractor(),
     ]
 
-    llm_provider = os.getenv("PULSE_LLM_PROVIDER", "none").lower()
-    if llm_provider in ("anthropic", "openai", "gemini"):
+    llm_provider = (
+        os.getenv("ENRICH_LLM_PROVIDER", "").strip()
+        or os.getenv("PULSE_LLM_PROVIDER", "none")
+    ).lower()
+    if llm_provider in ("anthropic", "openai", "gemini", "groq", "nvidia"):
         try:
             from agents.research.ontology_enricher import get_llm_ontology_extractor
             llm_extractor = get_llm_ontology_extractor()

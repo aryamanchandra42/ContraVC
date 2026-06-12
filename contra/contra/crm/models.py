@@ -71,6 +71,26 @@ class CrmProspect(BaseModel):
     prospect_score: Optional[float] = None
 
 
+class CrmIcpQueueItem(BaseModel):
+    """One row from v_crm_icp_queue — ICP prospect awaiting gate review."""
+    model_config = ConfigDict(extra="forbid")
+
+    allocator_id: Optional[str] = None
+    investor_name: str
+    allocator_type: Optional[str] = None
+    investor_location: Optional[str] = None
+    icp_tier: Optional[str] = None
+    fit_score: Optional[float] = None
+    client_decision: Optional[str] = None
+    client_status: Optional[str] = None
+    core_pass: Optional[bool] = None
+    warm_path_count: Optional[int] = None
+    readiness: Literal["READY", "NEAR_READY", "PENDING"]
+    gate_verdict: Optional[Literal["yes", "review", "no"]] = None
+    gate_session_id: Optional[str] = None
+    gate_reviewed_at: Optional[str] = None
+
+
 class CrmLeadUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

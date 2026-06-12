@@ -253,6 +253,20 @@ def test_zero_evidence_review_stays_review_in_institutional_mode():
     assert result.llm_recommendation == "review"
 
 
+def test_institutional_thin_evidence_no_upgraded_to_review():
+    """Institutional NO with C1 unknown and only absence flags → REVIEW."""
+    expl = _base_explanation(
+        llm_recommendation="no",
+        confidence="low",
+        c1_status="unknown",
+        negative_flags=["no_fund_lp_history"],
+        summary="India-based investor; no fund LP evidence found.",
+    )
+    result = validate_and_patch(expl, None, "thin web context", "institutional")
+    assert result.llm_recommendation == "review"
+    assert "flip to yes" in result.summary.lower()
+
+
 def test_review_with_allocation_evidence_stays_review_in_nfx_individual():
     """
     nfx_individual + REVIEW but has allocation evidence → genuinely ambiguous,

@@ -29,11 +29,9 @@ def test_nfx_no_fund_lp_already_no_stays_no():
 
 
 def test_institutional_no_fund_lp_does_not_force_no():
-    """In institutional mode, no_fund_lp_history does NOT force to NO — just downgrades."""
+    """In institutional mode, no_fund_lp_history keeps REVIEW (absence ≠ confirmed misfit)."""
     ap = _appetite(negative_flags=["no_fund_lp_history"])
-    # review → no via strong-negative downgrade
-    assert apply_appetite_adjustments("review", ap, "institutional") == "no"
-    # yes → review (one step down)
+    assert apply_appetite_adjustments("review", ap, "institutional") == "review"
     assert apply_appetite_adjustments("yes", ap, "institutional") == "review"
 
 

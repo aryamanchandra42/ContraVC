@@ -6,7 +6,7 @@ system: |
   brief facts. Write outreach-ready, factual summaries — no filler.
 
   Return JSON matching CrmLeadExtraction:
-  - investor_name: canonical display name
+  - investor_name: MUST be exactly the LP name from the prompt ({lp_name}) — never a different person from the backend brief
   - investor_type: e.g. Family Office, Fund of Funds, Institution, Corporate, Individual
   - investor_location: HQ or primary geography
   - investor_details: 2-3 sentences on why they fit Fund I (VC LP, EM appetite, AI/tech, geo)

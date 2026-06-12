@@ -7,6 +7,7 @@ Provider is selected by PULSE_LLM_PROVIDER env var:
     openai     → OpenAI GPT (OPENAI_API_KEY)
     gemini     → Google Gemini (GEMINI_API_KEY)
     groq       → Groq inference API (GROQ_API_KEY) — OpenAI-compatible
+    nvidia     → NVIDIA NIM (NVAPI_API_KEY) — OpenAI-compatible catalog models
     none / ""  → no LLM; raises LLMUnavailable so callers fall back to local paths
 
 Usage:
@@ -47,6 +48,45 @@ class LLMExtractionError(RuntimeError):
     """Raised when the LLM returns output that cannot be parsed into the schema."""
 
 
+# Cost-efficient gate + chat default when using Anthropic (Haiku 3.5 retired 2026-02-19)
+HAIKU_MODEL = "claude-haiku-4-5"
+
+
+def _anthropic_api_key() -> str:
+    """ANTHROPIC_API_KEY with CLAUDE_API_KEY alias for .env convenience."""
+    return (
+        os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        or os.environ.get("CLAUDE_API_KEY", "").strip()
+    )
+
+
+def anthropic_configured() -> bool:
+    return bool(_anthropic_api_key())
+
+
+def primary_llm_provider() -> str:
+    return os.environ.get("PULSE_LLM_PROVIDER", "none").lower().strip()
+
+
+def anthropic_only_mode() -> bool:
+    """True when PULSE_LLM_PROVIDER=anthropic — no cross-provider fallbacks."""
+    return primary_llm_provider() == "anthropic"
+
+
+def get_anthropic_haiku_client(
+    temperature: float = 0.0,
+    *,
+    auto_switch: Optional[bool] = None,
+) -> Any:
+    """Claude 3.5 Haiku — default for gate verdict and chat when Anthropic is configured."""
+    return get_llm_client(
+        provider="anthropic",
+        model=HAIKU_MODEL,
+        temperature=temperature,
+        auto_switch=auto_switch,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Provider implementations
 # ---------------------------------------------------------------------------
@@ -58,9 +98,13 @@ class _AnthropicClient:
         import anthropic
         import instructor
 
+        api_key = _anthropic_api_key()
+        if not api_key:
+            raise LLMUnavailable("ANTHROPIC_API_KEY or CLAUDE_API_KEY must be set.")
+
         self.model = model
         self.temperature = temperature
-        self._raw = anthropic.Anthropic()
+        self._raw = anthropic.Anthropic(api_key=api_key)
         self._client = instructor.from_anthropic(self._raw)
 
     def structured(
@@ -154,6 +198,97 @@ class _OpenAIClient:
             return resp.choices[0].message.content or ""
         except Exception as exc:
             raise LLMExtractionError(f"OpenAI chat failed: {exc}") from exc
+
+    @property
+    def meta(self) -> dict:
+        return {"provider": self.provider, "model": self.model, "temperature": self.temperature}
+
+
+_NIM_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
+# Reasoning NIM models emit a thinking trace that breaks instructor JSON mode.
+_NIM_STRUCTURED_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def _get_nvidia_api_key() -> str:
+    """NVAPI_API_KEY from build.nvidia.com; NGC_API_KEY for nvcr.io / self-hosted NIM."""
+    return (
+        os.environ.get("NVAPI_API_KEY", "").strip()
+        or os.environ.get("NGC_API_KEY", "").strip()
+        or os.environ.get("NVA_API_KEY", "").strip()
+    )
+
+
+def _get_nim_base_url() -> str:
+    return os.environ.get("NIM_BASE_URL", "").strip() or _NIM_DEFAULT_BASE_URL
+
+
+def nvidia_configured() -> bool:
+    """True when hosted NIM API key or a local NIM endpoint is set."""
+    return bool(
+        _get_nvidia_api_key()
+        or os.environ.get("NIM_BASE_URL", "").strip()
+        or os.environ.get("NIM_RERANK_BASE_URL", "").strip()
+    )
+
+
+class _NvidiaNIMClient:
+    """
+    NVIDIA NIM — OpenAI-compatible hosted API or self-hosted NIM container.
+
+    Requires: pip install openai; NVAPI_API_KEY and/or NIM_BASE_URL.
+    Model IDs use the catalog path, e.g. meta/llama-3.3-70b-instruct.
+    """
+    provider = "nvidia"
+
+    def __init__(self, model: str, temperature: float) -> None:
+        import instructor
+        from openai import OpenAI
+
+        self.model = model
+        self.temperature = temperature
+        api_key = _get_nvidia_api_key() or "EMPTY"
+        self._raw = OpenAI(base_url=_get_nim_base_url(), api_key=api_key)
+        self._client = instructor.from_openai(self._raw)
+
+    def structured(
+        self,
+        prompt: str,
+        response_model: Type[T],
+        system: str = "You are a precise structured-data extraction assistant.",
+        max_tokens: int = 2048,
+    ) -> T:
+        try:
+            return self._client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=max_tokens,
+                response_model=response_model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                extra_body=_NIM_STRUCTURED_EXTRA_BODY,
+            )
+        except Exception as exc:
+            raise LLMExtractionError(f"NVIDIA NIM extraction failed: {exc}") from exc
+
+    def chat(
+        self,
+        messages: list,
+        system: str = "You are a helpful assistant.",
+        max_tokens: int = 1024,
+    ) -> str:
+        try:
+            resp = self._raw.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=max_tokens,
+                messages=[{"role": "system", "content": system}] + messages,
+                extra_body=_NIM_STRUCTURED_EXTRA_BODY,
+            )
+            return resp.choices[0].message.content or ""
+        except Exception as exc:
+            raise LLMExtractionError(f"NVIDIA NIM chat failed: {exc}") from exc
 
     @property
     def meta(self) -> dict:
@@ -322,6 +457,9 @@ _RATE_LIMIT_MARKERS = (
     "model_decommissioned",
     "no longer supported",
     "deprecated",
+    "not found",
+    "404",
+    "function ",
 )
 
 # Larger-context models to try within the same provider before cross-provider fallback.
@@ -329,14 +467,21 @@ _RATE_LIMIT_MARKERS = (
 _PROVIDER_UPGRADES: dict[str, tuple[str, ...]] = {
     # 8b: free-tier TPM cap is 6k tokens/request. Only works when compact_web=True (~4.5k tokens).
     "groq": ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
-    "anthropic": ("claude-3-5-sonnet-20241022",),
+    "anthropic": ("claude-sonnet-4-6",),
     "openai": ("gpt-4o",),
+    "nvidia": (
+        "deepseek-ai/deepseek-v3.2",
+        "minimaxai/minimax-m2.5",
+        "mistralai/mistral-small-4-119b-2603",
+        "meta/llama-3.3-70b-instruct",
+    ),
 }
 
 # Cross-provider fallbacks when the primary (and upgrades) cannot fit the prompt.
 # Order: cost-effective models with generous context windows.
 _CROSS_PROVIDER_FALLBACKS: tuple[tuple[str, str], ...] = (
-    ("anthropic", "claude-3-5-haiku-20241022"),
+    ("nvidia", "meta/llama-3.3-70b-instruct"),
+    ("anthropic", HAIKU_MODEL),
     ("openai", "gpt-4o-mini"),
     ("groq", "llama-3.3-70b-versatile"),
 )
@@ -351,6 +496,10 @@ def _auto_switch_enabled() -> bool:
 def _has_api_key(provider: str) -> bool:
     if provider == "groq":
         return bool(_get_groq_api_key())
+    if provider == "nvidia":
+        return nvidia_configured()
+    if provider == "anthropic":
+        return anthropic_configured()
     key_env = _KEY_ENV.get(provider)
     return bool(key_env and os.environ.get(key_env, "").strip())
 
@@ -402,8 +551,9 @@ def _build_fallback_candidates(
         if model != primary_model:
             add(primary_provider, model)
 
-    for provider, model in _CROSS_PROVIDER_FALLBACKS:
-        add(provider, model)
+    if not anthropic_only_mode():
+        for provider, model in _CROSS_PROVIDER_FALLBACKS:
+            add(provider, model)
 
     return candidates
 
@@ -529,12 +679,13 @@ class ResilientLLMClient:
 
 # Default models per provider
 _DEFAULT_MODELS: dict[str, str] = {
-    "anthropic": "claude-3-5-haiku-20241022",
+    "anthropic": HAIKU_MODEL,
     # gpt-4o is the default for OpenAI — significantly better structured reasoning
     # than gpt-4o-mini for gate screening decisions. ~$0.016/call vs $0.001 for mini.
     # Set PULSE_LLM_MODEL=gpt-4o-mini to revert to the cheaper mini model.
     "openai": "gpt-4o",
     "groq": "llama-3.3-70b-versatile",
+    "nvidia": "meta/llama-3.3-70b-instruct",
 }
 
 # Env var names for API keys
@@ -542,22 +693,27 @@ _KEY_ENV: dict[str, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
     "groq": "GROQ_API_KEY",
+    "nvidia": "NVAPI_API_KEY",
 }
 
 _BUILDERS: dict[str, type] = {
     "anthropic": _AnthropicClient,
     "openai": _OpenAIClient,
     "groq": _GroqClient,
+    "nvidia": _NvidiaNIMClient,
 }
 
 _MODEL_PREFIXES: dict[str, tuple[str, ...]] = {
     "anthropic": ("claude-",),
     "openai": ("gpt-", "o1", "o3", "chatgpt-"),
     "groq": ("llama-", "mixtral-", "gemma-", "qwen/", "deepseek-"),
+    "nvidia": (),
 }
 
 
 def _model_matches_provider(provider: str, model: str) -> bool:
+    if provider == "nvidia":
+        return bool(model.strip())
     prefixes = _MODEL_PREFIXES.get(provider, ())
     low = model.lower().strip()
     return any(low.startswith(p) for p in prefixes)
@@ -605,7 +761,7 @@ def get_llm_client(
 
     if resolved_provider in ("none", ""):
         raise LLMUnavailable(
-            "No LLM provider configured. Set PULSE_LLM_PROVIDER to anthropic, openai, or groq."
+            "No LLM provider configured. Set PULSE_LLM_PROVIDER to anthropic, openai, groq, or nvidia."
         )
 
     if resolved_provider not in _BUILDERS:
@@ -640,3 +796,29 @@ def get_llm_client(
         extra={"provider": resolved_provider, "model": resolved_model},
     )
     return client
+
+
+def get_nvidia_llm_client(
+    model: Optional[str] = None,
+    temperature: float = 0.0,
+    *,
+    auto_switch: Optional[bool] = None,
+) -> Any:
+    """NVIDIA NIM client for knowledge enrichment and optional secondary workloads."""
+    resolved_model = (model or os.environ.get("ENRICH_LLM_MODEL") or "").strip() or _DEFAULT_MODELS["nvidia"]
+    return get_llm_client(
+        provider="nvidia",
+        model=resolved_model,
+        temperature=temperature,
+        auto_switch=auto_switch,
+    )
+
+
+def get_enrich_llm_client(
+    temperature: float = 0.0,
+    *,
+    auto_switch: Optional[bool] = None,
+) -> Any:
+    """Delegate to nim_router — per-task NVIDIA models for batch enrich / ontology."""
+    from agents.research.nim_router import get_enrich_llm_client as _enrich
+    return _enrich(temperature=temperature, auto_switch=auto_switch)

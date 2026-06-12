@@ -285,6 +285,46 @@ def upsert_manual_lead(con, body: CrmManualAdd) -> CrmLead:
     return _insert_lead(con, fields, source="manual")
 
 
+def record_gate_review(con, result: GateResult) -> None:
+    """Upsert a gate review record so the ICP queue can track screening history.
+
+    Called automatically by POST /api/gate after every successful screen.
+    Uses INSERT OR REPLACE so the latest verdict always wins for a given name.
+    """
+    verdict = "yes" if result.yes else ("review" if result.is_review else "no")
+    key = norm_key(result.lp_name)
+    allocator_id: Optional[str] = None
+    try:
+        row = con.execute(
+            "SELECT CAST(allocator_id AS VARCHAR) FROM allocators "
+            "WHERE lower(regexp_replace(canonical_name, '[^a-zA-Z0-9]', '', 'g')) = ? LIMIT 1",
+            [key],
+        ).fetchone()
+        if row:
+            allocator_id = str(row[0])
+    except Exception:
+        pass
+
+    try:
+        con.execute(
+            """
+            INSERT INTO crm_gate_reviews
+                (name_key, investor_name, allocator_id, gate_verdict, gate_session_id, reviewed_at)
+            VALUES (?, ?, ?, ?, ?, NOW())
+            ON CONFLICT (name_key) DO UPDATE SET
+                investor_name   = EXCLUDED.investor_name,
+                allocator_id    = COALESCE(EXCLUDED.allocator_id, crm_gate_reviews.allocator_id),
+                gate_verdict    = EXCLUDED.gate_verdict,
+                gate_session_id = EXCLUDED.gate_session_id,
+                reviewed_at     = EXCLUDED.reviewed_at
+            """,
+            [key, result.lp_name, allocator_id, verdict, result.session_id],
+        )
+    except Exception:
+        # Non-fatal — gate screening must not fail due to review tracking
+        pass
+
+
 def sync_import_to_leads(con) -> int:
     """Upsert crm_contacts rows into crm_leads (source=import). Returns rows added."""
     rows = con.execute(

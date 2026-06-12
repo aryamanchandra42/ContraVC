@@ -7,10 +7,11 @@ from typing import Dict, List, Optional
 
 from contra.gate.appetite_validator import validate_and_patch
 from contra.gate.evaluator import apply_appetite_adjustments, build_allocation_evidence, evaluate
+from contra.gate.evidence_verifier import verify_evidence
 from contra.gate.models import CoreGateCheck, GateAssessment, GateResult
 from contra.gate.research import search_lp, search_lp_with_nfx
 from contra.gate.session import GateSession, create_session
-from contra.gate.verdict import explain, explain_hard_block
+from contra.gate.verdict import explain_hard_block, explain_with_escalation
 from contra.intelligence.brief import find_similar_confirmed_lps, lookup
 from contra.intelligence.lp_similarity import (
     build_similarity_target,
@@ -45,6 +46,35 @@ def _merge_core_gates(
         else:
             merged.append(ev)
     return merged
+
+
+def _web_budget(compact_web: bool) -> int:
+    """
+    Web-context character budget for the verdict prompt.
+
+    GATE_WEB_MAX_CHARS (single-LP, default 20000) and GATE_WEB_MAX_CHARS_BATCH
+    (batch, default 9000). The old 1200-char batch cap — a relic of free-tier
+    Groq TPM limits — starved the verdict model of evidence.
+    """
+    import os
+
+    key = "GATE_WEB_MAX_CHARS_BATCH" if compact_web else "GATE_WEB_MAX_CHARS"
+    default = 9000 if compact_web else 20000
+    raw = os.environ.get(key, "").strip()
+    try:
+        return max(2000, int(raw)) if raw else default
+    except ValueError:
+        return default
+
+
+def _pitchbook_facts(name: str) -> List[str]:
+    """Deterministic ground-truth facts from the authenticated PitchBook profile."""
+    try:
+        from agents.research.pitchbook_fetch import pb_deterministic_facts
+
+        return pb_deterministic_facts(name)
+    except Exception:
+        return []
 
 
 def _pitchbook_status(source_urls: List[str]) -> str:
@@ -147,24 +177,32 @@ def run_gate(
         return result
 
     # ----- Web research + drill-down ----------------------------------------
-    # compact_web=True cuts web context to 1200 chars; single-LP gate uses 4000.
-    # When a PitchBook profile is injected, raise the batch limit so PB data
-    # isn't truncated (it's the highest-value source).
-    max_chars = 1200 if compact_web else 4000
+    # Generous evidence budgets: verdict quality is evidence-bound, not
+    # context-bound (Claude/GPT verdict models have 128k+ context windows).
+    max_chars = _web_budget(compact_web)
+    search_kw = dict(
+        max_chars=max_chars,
+        screening_mode=screening_mode,
+        match_untrusted=brief.match_untrusted,
+    )
     if nfx_url:
-        web_context, source_urls = search_lp_with_nfx(name, nfx_url=nfx_url, max_chars=max_chars)
+        web_context, source_urls = search_lp_with_nfx(name, nfx_url=nfx_url, **search_kw)
     else:
-        web_context, source_urls = search_lp(name, max_chars=max_chars)
+        web_context, source_urls = search_lp(name, **search_kw)
 
     pb_status = _pitchbook_status(source_urls)
-    # If PitchBook was fetched in a compact_web run, extend the context budget
-    # so PB's structured data (AUM, LP type, recent commitments) isn't truncated.
-    if compact_web and pb_status == "fetched" and len(web_context) < 2500:
-        web_context, source_urls = (
-            search_lp_with_nfx(name, nfx_url=nfx_url, max_chars=2500)
-            if nfx_url
-            else search_lp(name, max_chars=2500)
-        )
+
+    from contra.gate.knowledge_enrich import enrich_gate_knowledge
+
+    web_context = enrich_gate_knowledge(
+        name, web_context, brief, screening_mode=screening_mode,
+    )
+
+    # ----- PitchBook ground-truth facts (deterministic C1 evidence) ---------
+    # A PB profile listing fund commitments deterministically passes C1 in the
+    # evaluator and is surfaced to the LLM as a hard fact, not an inference.
+    pb_facts = _pitchbook_facts(name)
+    eval_facts = analyst_facts + pb_facts
 
     drill_results = run_drill_down(con, brief)
     allocation_evidence = build_allocation_evidence(brief)
@@ -176,16 +214,16 @@ def run_gate(
     brief.similar_confirmed_lps = find_similar_confirmed_lps(con, pre_target, limit=4)
 
     # ----- Phase 1: deterministic assessment (pre-appetite) -----------------
-    assessment = evaluate(brief, analyst_facts, screening_mode=screening_mode)
+    assessment = evaluate(brief, eval_facts, screening_mode=screening_mode)
 
-    # ----- Phase 2: LLM explain pass — infers appetite ----------------------
-    explanation = explain(
+    # ----- Phase 2: LLM explain pass — triage + strong-model escalation -----
+    explanation, verdict_meta = explain_with_escalation(
         name=name,
         brief=brief,
         assessment=assessment,
         web_context=web_context,
         drill_results=drill_results,
-        analyst_facts=analyst_facts,
+        analyst_facts=eval_facts,
         allocation_evidence=allocation_evidence,
         nfx_context=nfx_context,
         screening_mode=screening_mode,
@@ -201,6 +239,15 @@ def run_gate(
         screening_mode=screening_mode,
     )
 
+    # ----- Phase 3b: evidence verifier — drop unquotable LP commitment claims
+    # and downgrade hollow YES verdicts (false-positive guard).
+    explanation, verification_notes = verify_evidence(
+        explanation,
+        web_context=web_context,
+        analyst_facts=eval_facts,
+        screening_mode=screening_mode,
+    )
+
     # ----- Post-LLM similar LP re-score (appetite-informed) -----------------
     appetite = explanation.to_appetite_profile(
         allocation_evidence=[allocation_evidence] if allocation_evidence else [],
@@ -212,7 +259,7 @@ def run_gate(
     brief.similar_confirmed_lps = refined_lps
 
     # ----- Phase 4: re-eval with the validated appetite profile -------------
-    assessment = evaluate(brief, analyst_facts, appetite=appetite, screening_mode=screening_mode)
+    assessment = evaluate(brief, eval_facts, appetite=appetite, screening_mode=screening_mode)
 
     # ----- Final decision: LLM is primary, hard blocks always win -----------
     if assessment.hard_blocks:
@@ -272,6 +319,9 @@ def run_gate(
         lp_commitments_found=explanation.lp_commitments_found,
         primary_blocker=primary_blocker,
         pitchbook_status=pb_status,
+        verdict_model=verdict_meta.get("model", ""),
+        escalated=bool(verdict_meta.get("escalated")),
+        verification_notes=verification_notes,
         partial_match_deals=brief.partial_match_deals,
         partial_match_investment_summary=brief.investment_summary or {} if brief.match_method == "fuzzy_low" else {},
         similar_confirmed_lps=brief.similar_confirmed_lps,
@@ -293,6 +343,11 @@ def run_gate(
         )
         if new_id and not brief.allocator_id:
             brief.allocator_id = new_id
+
+        # Durable LP dossier — outlives the 30-minute in-memory session
+        from contra.crm.dossier import upsert_dossier_from_gate
+
+        upsert_dossier_from_gate(con, result, web_context, allocator_id=brief.allocator_id)
 
     _register_session(session_id, name, brief, web_context, assessment, result, explanation)
     return result

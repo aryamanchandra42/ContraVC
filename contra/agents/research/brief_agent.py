@@ -412,9 +412,17 @@ def generate_brief(
 
     try:
         from agents.research.llm_client import get_llm_client, LLMUnavailable
+        from agents.research.nim_router import get_nim_task_client, nim_enabled
         from agents.research.schemas import BriefSections
 
-        llm_client = get_llm_client()
+        try:
+            llm_client = (
+                get_nim_task_client("brief", auto_switch=True)
+                if nim_enabled()
+                else get_llm_client()
+            )
+        except LLMUnavailable:
+            llm_client = get_llm_client()
         context = _build_brief_context(detail, warm_paths, connectivity, ego)
 
         prompt = f"""You are a private-market fundraising analyst at MyAsiaVC, an AI-native VC fund.

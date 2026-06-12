@@ -2,12 +2,15 @@
 Batch GATE runner for CSV/XLSX uploads.
 
 Processes a list of NfxInvestorRecord objects through the full GATE pipeline,
-one investor at a time, with:
-  - Rate-limiting delays between LLM calls
+in parallel (GATE_BATCH_WORKERS threads, default 4), with:
+  - Rate-limiting delays between LLM calls (per worker)
   - Exponential back-off on RuntimeError (LLM rate limits)
   - Deduplication: skip investors already in CRM or already screened this batch
   - Checkpointing: progress written to processed_data/batch_gate/{batch_id}.jsonl
   - In-memory registry: active batch reports keyed by batch_id (for API polling)
+
+Each worker gets its own DuckDB cursor (con.cursor() duplicates the connection
+for thread-safe use). Set GATE_BATCH_WORKERS=1 for the old sequential behavior.
 
 Usage:
     from contra.gate.batch import batch_gate_run
@@ -18,8 +21,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -79,33 +85,76 @@ def batch_gate_run(
     # Load prior checkpoint to support resume
     completed_names = _load_checkpoint(checkpoint_path, report)
 
-    for record in records:
-        name = record.investor_name
+    pending = [r for r in records if r.investor_name not in completed_names]
+    for skipped in (r.investor_name for r in records if r.investor_name in completed_names):
+        logger.info("[batch:%s] skipping (already checkpointed): %s", batch_id, skipped)
 
-        # Skip already-processed in this batch (checkpoint resume)
-        if name in completed_names:
-            logger.info("[batch:%s] skipping (already checkpointed): %s", batch_id, name)
-            continue
+    workers = _batch_workers()
+    report_lock = threading.Lock()
 
-        item = _screen_one(con, record, delay_seconds, max_retries, compact_web=compact_web)
+    def _record_item(item: BatchGateItem) -> None:
+        with report_lock:
+            report.results.append(item)
+            report.processed += 1
+            _increment_count(report, item.verdict)
+            _append_checkpoint(checkpoint_path, item)
+            completed_names.add(item.investor_name)
+            logger.info(
+                "[batch:%s] %d/%d — %s → %s",
+                batch_id, report.processed, report.total,
+                item.investor_name, item.verdict.upper(),
+            )
 
-        # Update report counts
-        report.results.append(item)
-        report.processed += 1
-        _increment_count(report, item.verdict)
+    if workers <= 1 or len(pending) <= 1:
+        for record in pending:
+            _record_item(
+                _screen_one(con, record, delay_seconds, max_retries, compact_web=compact_web)
+            )
+    else:
+        def _task(record: NfxInvestorRecord) -> BatchGateItem:
+            # Per-thread DuckDB cursor — duplicates the connection for safe
+            # concurrent use; falls back to the shared con if unavailable.
+            cur = con.cursor() if hasattr(con, "cursor") else con
+            try:
+                return _screen_one(cur, record, delay_seconds, max_retries, compact_web=compact_web)
+            finally:
+                if cur is not con:
+                    try:
+                        cur.close()
+                    except Exception:
+                        pass
 
-        # Checkpoint to disk
-        _append_checkpoint(checkpoint_path, item)
-        completed_names.add(name)
-
-        logger.info(
-            "[batch:%s] %d/%d — %s → %s",
-            batch_id, report.processed, report.total, name, item.verdict.upper()
-        )
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="gate-batch") as pool:
+            futures = {pool.submit(_task, r): r for r in pending}
+            for fut in as_completed(futures):
+                record = futures[fut]
+                try:
+                    item = fut.result()
+                except Exception as exc:  # defensive — _screen_one already catches
+                    logger.error("[batch:%s] worker crashed for %s: %s",
+                                 batch_id, record.investor_name, exc)
+                    item = BatchGateItem(
+                        investor_name=record.investor_name,
+                        firm_name=record.firm_name,
+                        nfx_url=record.nfx_url,
+                        verdict="error",
+                        summary="Worker crashed during screening.",
+                        error_detail=str(exc),
+                    )
+                _record_item(item)
 
     report.running = False
     _BATCH_REGISTRY[batch_id] = report
     return report
+
+
+def _batch_workers() -> int:
+    """Parallel gate workers (GATE_BATCH_WORKERS, default 4, min 1, max 8)."""
+    raw = os.environ.get("GATE_BATCH_WORKERS", "").strip()
+    try:
+        return min(8, max(1, int(raw))) if raw else 4
+    except ValueError:
+        return 4
 
 
 def get_batch_report(batch_id: str) -> Optional[BatchGateReport]:

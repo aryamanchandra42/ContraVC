@@ -145,7 +145,8 @@ def process_message(con, session_id: str, message: str) -> ChatResponse:
       updated_result  — new GateResult if re-screened, else None
       rescreened      — True if evaluator re-ran
     """
-    from agents.research.llm_client import LLMUnavailable, get_llm_client
+    from agents.research.llm_client import LLMUnavailable
+    from agents.research.nim_router import get_gate_chat_llm
 
     session = get_session(session_id)
     if session is None:
@@ -156,10 +157,11 @@ def process_message(con, session_id: str, message: str) -> ChatResponse:
         )
 
     try:
-        llm = get_llm_client()
+        facts_llm = get_gate_chat_llm("facts")
+        qa_llm = get_gate_chat_llm("qa")
     except LLMUnavailable:
         return ChatResponse(
-            reply="LLM unavailable — set PULSE_LLM_PROVIDER and the matching API key to use gate chat.",
+            reply="LLM unavailable — set ANTHROPIC_API_KEY and PULSE_LLM_PROVIDER=anthropic for gate chat.",
             updated_result=None,
             rescreened=False,
         )
@@ -168,7 +170,7 @@ def process_message(con, session_id: str, message: str) -> ChatResponse:
     update_session(session_id, new_message={"role": "user", "content": message})
 
     # Extract facts
-    extraction = _extract_facts(llm, session.lp_name, message)
+    extraction = _extract_facts(facts_llm, session.lp_name, message)
 
     updated_result: Optional[GateResult] = None
     rescreened = False
@@ -213,7 +215,7 @@ def process_message(con, session_id: str, message: str) -> ChatResponse:
         )
         cfg = _load_yaml("gate_chat.yaml")
         system = cfg.get("system") or "You are a helpful LP screening assistant."
-        reply = llm.chat(
+        reply = qa_llm.chat(
             messages=[{"role": "user", "content": prompt}],
             system=system,
             max_tokens=1024,

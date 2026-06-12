@@ -13,7 +13,7 @@ import math
 import re
 from datetime import datetime
 
-from contra.crm.models import CrmLead, CrmLeadUpdate, CrmManualAdd, CrmPromoteRequest, CrmProspect
+from contra.crm.models import CrmIcpQueueItem, CrmLead, CrmLeadUpdate, CrmManualAdd, CrmPromoteRequest, CrmProspect
 from contra.crm.writer import (
     add_lead_from_gate,
     get_lead_by_id,
@@ -209,6 +209,72 @@ def list_enrichment(con=Depends(get_db)) -> List[Dict[str, Any]]:
     return rows.to_dict(orient="records")
 
 
+@router.get("/crm/icp-queue", response_model=List[CrmIcpQueueItem])
+def list_icp_queue(
+    readiness: Optional[str] = Query(None, description="READY | NEAR_READY | PENDING"),
+    gate_status: str = Query("all", description="needs_gate | gated | all"),
+    top: int = Query(150, ge=1, le=500),
+    con=Depends(get_db),
+) -> List[CrmIcpQueueItem]:
+    """ICP-sourced LP discovery queue.
+
+    Returns institutional prospects that passed ICP scoring but are not yet in
+    CRM, with readiness labels and any prior Gate screening result.
+    """
+    sql = """
+        SELECT allocator_id, investor_name, allocator_type, investor_location,
+               icp_tier, fit_score, client_decision, client_status, core_pass,
+               warm_path_count, readiness, gate_verdict, gate_session_id,
+               gate_reviewed_at
+        FROM v_crm_icp_queue
+        WHERE 1=1
+    """
+    params: List[Any] = []
+
+    if readiness:
+        sql += " AND readiness = ?"
+        params.append(readiness.upper())
+
+    if gate_status == "needs_gate":
+        sql += " AND gate_verdict IS NULL"
+    elif gate_status == "gated":
+        sql += " AND gate_verdict IS NOT NULL"
+
+    sql += """
+        ORDER BY
+            CASE readiness
+                WHEN 'READY'      THEN 1
+                WHEN 'NEAR_READY' THEN 2
+                ELSE 3
+            END,
+            fit_score DESC NULLS LAST
+        LIMIT ?
+    """
+    params.append(top)
+
+    rows = con.execute(sql, params).fetchall()
+    out: List[CrmIcpQueueItem] = []
+    for r in rows:
+        fit = _safe_float(r[5])
+        out.append(CrmIcpQueueItem(
+            allocator_id=str(r[0]) if r[0] else None,
+            investor_name=r[1],
+            allocator_type=r[2],
+            investor_location=r[3],
+            icp_tier=r[4],
+            fit_score=fit,
+            client_decision=r[6],
+            client_status=r[7],
+            core_pass=bool(r[8]) if r[8] is not None else None,
+            warm_path_count=int(r[9]) if r[9] is not None else None,
+            readiness=r[10] or "PENDING",
+            gate_verdict=r[11] or None,
+            gate_session_id=r[12] or None,
+            gate_reviewed_at=str(r[13]) if r[13] else None,
+        ))
+    return out
+
+
 @router.post("/crm/leads", response_model=CrmLead)
 def create_lead(body: CrmManualAdd, con=Depends(get_db)) -> CrmLead:
     try:
@@ -347,3 +413,156 @@ def update_lead(lead_id: str, body: CrmLeadUpdate, con=Depends(get_db)) -> CrmLe
         )
 
     return get_lead_by_id(con, lead_id)
+
+
+# ---------------------------------------------------------------------------
+# LP dossier — durable institutional memory per LP
+# ---------------------------------------------------------------------------
+
+@router.get("/crm/dossier/{investor_name}")
+def get_lp_dossier(investor_name: str, con=Depends(get_db)) -> Dict[str, Any]:
+    from contra.crm.dossier import get_dossier
+
+    dossier = get_dossier(con, investor_name)
+    if not dossier:
+        raise HTTPException(status_code=404, detail=f"No dossier for '{investor_name}'")
+    return dossier
+
+
+class DossierNotesUpdate(BaseModel):
+    notes: str
+
+
+@router.patch("/crm/dossier/{investor_name}/notes")
+def update_dossier_notes(
+    investor_name: str, body: DossierNotesUpdate, con=Depends(get_db)
+) -> Dict[str, Any]:
+    from contra.crm.dossier import get_dossier, set_analyst_notes
+
+    set_analyst_notes(con, investor_name, body.notes)
+    dossier = get_dossier(con, investor_name)
+    if not dossier:
+        raise HTTPException(status_code=404, detail=f"No dossier for '{investor_name}'")
+    return dossier
+
+
+# ---------------------------------------------------------------------------
+# Outreach personalization agent
+# ---------------------------------------------------------------------------
+
+class OutreachGenerateRequest(BaseModel):
+    tone: str = "warm"
+    sender_name: str = ""
+    extra_instructions: str = ""
+
+
+class OutreachStatusUpdate(BaseModel):
+    status: str  # draft | approved | sent | discarded
+
+
+@router.post("/crm/leads/{lead_id}/outreach")
+def generate_outreach(
+    lead_id: str, body: OutreachGenerateRequest, con=Depends(get_db)
+) -> Dict[str, Any]:
+    from contra.crm.outreach import generate_outreach_draft
+
+    try:
+        return generate_outreach_draft(
+            con, lead_id,
+            tone=body.tone,
+            sender_name=body.sender_name,
+            extra_instructions=body.extra_instructions,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"{type(exc).__name__}: {exc}") from exc
+
+
+@router.get("/crm/leads/{lead_id}/outreach")
+def list_outreach(lead_id: str, con=Depends(get_db)) -> List[Dict[str, Any]]:
+    from contra.crm.outreach import list_outreach_drafts
+
+    return list_outreach_drafts(con, lead_id)
+
+
+@router.patch("/crm/outreach/{draft_id}")
+def update_outreach(
+    draft_id: str, body: OutreachStatusUpdate, con=Depends(get_db)
+) -> Dict[str, str]:
+    from contra.crm.outreach import update_draft_status
+
+    try:
+        ok = update_draft_status(con, draft_id, body.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not ok:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    return {"draft_id": draft_id, "status": body.status}
+
+
+# ---------------------------------------------------------------------------
+# Next-best-action outreach queue
+# ---------------------------------------------------------------------------
+
+@router.get("/crm/outreach-queue")
+def outreach_queue(top: int = Query(10, ge=1, le=50), con=Depends(get_db)) -> List[Dict[str, Any]]:
+    """
+    Ranked "contact these next" queue: active YES leads first, ordered by a
+    blend of computed score, verified LP commitments, and warm paths.
+    """
+    rows = con.execute(
+        """
+        SELECT
+            CAST(l.lead_id AS VARCHAR), l.investor_name, l.investor_type,
+            l.investor_location, l.gate_verdict, l.gate_confidence,
+            l.computed_score, l.warm_path_count, l.pipeline_stage,
+            d.lp_commitments_json,
+            (SELECT COUNT(*) FROM crm_outreach_drafts o
+             WHERE CAST(o.lead_id AS VARCHAR) = CAST(l.lead_id AS VARCHAR)) AS draft_count
+        FROM crm_leads l
+        LEFT JOIN lp_dossiers d ON d.name_key = l.name_key
+        WHERE l.status = 'active'
+        """
+    ).fetchall()
+
+    scored: List[Dict[str, Any]] = []
+    for r in rows:
+        commitments = r[9]
+        if isinstance(commitments, str):
+            try:
+                commitments = json.loads(commitments)
+            except Exception:
+                commitments = []
+        commitments = commitments or []
+        base = float(r[6] or 0)
+        verdict_bonus = 30 if r[4] == "yes" else (10 if r[4] == "review" else 0)
+        confidence_bonus = 10 if r[5] == "high" else 0
+        commit_bonus = min(len(commitments), 3) * 15
+        warm_bonus = min(int(r[7] or 0), 3) * 8
+        priority = base + verdict_bonus + confidence_bonus + commit_bonus + warm_bonus
+
+        why = []
+        if commitments:
+            why.append(f"{len(commitments)} verified LP commitment(s)")
+        if r[4] == "yes":
+            why.append(f"gate YES ({r[5]} confidence)")
+        if int(r[7] or 0) > 0:
+            why.append(f"{r[7]} warm path(s)")
+        if not why:
+            why.append("highest available score")
+
+        scored.append({
+            "lead_id": r[0],
+            "investor_name": r[1],
+            "investor_type": r[2],
+            "investor_location": r[3],
+            "gate_verdict": r[4],
+            "priority_score": round(priority, 1),
+            "why": "; ".join(why),
+            "has_draft": int(r[10] or 0) > 0,
+            "pipeline_stage": r[8],
+        })
+
+    scored.sort(key=lambda x: -x["priority_score"])
+    return scored[:top]

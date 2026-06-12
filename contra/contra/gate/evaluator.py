@@ -28,6 +28,12 @@ _STRONG_NEGATIVES = {
     "pe_only", "direct_only", "no_venture",
     "no_fund_lp_history", "angel_only", "nfx_angel_only",
 }
+# Confirmed misfit — safe to push REVIEW→NO in institutional mode.
+_CONFIRMED_MISFIT_FLAGS = {
+    "pe_only", "direct_only", "no_venture", "angel_only", "nfx_angel_only",
+}
+# Absence-of-evidence flag — institutional mode keeps REVIEW (does not force NO).
+_ABSENCE_FLAGS = {"no_fund_lp_history"}
 
 # Behavioral archetypes that count against fit when no positive appetite exists.
 _UNFAVORABLE_ARCHETYPES = {"corporate_investor"}
@@ -497,8 +503,12 @@ def apply_appetite_adjustments(
     if screening_mode == "nfx_individual" and (flags & _STRONG_NEGATIVES):
         return "no"
 
-    if flags & _STRONG_NEGATIVES:
+    if flags & _CONFIRMED_MISFIT_FLAGS:
         rec = "review" if rec == "yes" else "no"
+    elif flags & _ABSENCE_FLAGS:
+        if rec == "yes":
+            rec = "review"
+        # institutional: keep REVIEW when only absence-of-evidence (no confirmed misfit)
     elif flags:
         if rec == "yes":
             rec = "review"

@@ -547,6 +547,88 @@ SELECT * FROM (
       )
 ) prospects;
 
+-- ============================================================
+-- v_crm_icp_queue — ICP-sourced LP discovery queue
+-- Surfaces institutional prospects that have passed ICP scoring
+-- but are not yet in CRM, with readiness labels and gate history.
+-- ============================================================
+
+CREATE OR REPLACE VIEW v_crm_icp_queue AS
+SELECT
+    CAST(a.allocator_id AS VARCHAR)  AS allocator_id,
+    a.canonical_name                 AS investor_name,
+    a.allocator_type,
+    a.geography                      AS investor_location,
+    i.tier                           AS icp_tier,
+    i.fit_score,
+    i.client_decision,
+    i.client_status,
+    i.core_pass,
+    (
+        SELECT COUNT(*) FROM relationships_effective r
+        WHERE r.edge_type = 'mutual_connection'
+          AND (CAST(r.source_node_id AS VARCHAR) = CAST(a.allocator_id AS VARCHAR)
+            OR CAST(r.target_node_id AS VARCHAR) = CAST(a.allocator_id AS VARCHAR))
+    ) AS warm_path_count,
+    CASE
+        WHEN i.tier = 'tier_1' THEN 'READY'
+        WHEN i.tier = 'tier_2'
+             AND LOWER(COALESCE(i.client_decision, '')) IN ('approved', 'approved_no_campaign')
+             THEN 'READY'
+        WHEN i.tier = 'tier_2'
+             AND COALESCE(i.fit_score, 0) >= 0.60
+             THEN 'NEAR_READY'
+        ELSE 'PENDING'
+    END AS readiness,
+    gr.gate_verdict,
+    gr.gate_session_id AS gate_session_id,
+    CAST(gr.reviewed_at AS VARCHAR) AS gate_reviewed_at
+FROM icp_scores i
+JOIN allocators a
+    ON CAST(a.allocator_id AS VARCHAR) = CAST(i.allocator_id AS VARCHAR)
+LEFT JOIN crm_gate_reviews gr
+    ON gr.name_key = lower(regexp_replace(
+        regexp_replace(
+            a.canonical_name,
+            '(?i)\s+(ltd|limited|llc|inc|corp|plc|pte|sa|bv|gmbh|lp|llp|co)\.?$',
+            '',
+            'g'
+        ),
+        '[^a-zA-Z0-9]', '', 'g'
+    ))
+WHERE i.icp_version = '4.1'
+  AND COALESCE(i.excluded, FALSE) = FALSE
+  AND COALESCE(i.core_pass, FALSE) = TRUE
+  AND COALESCE(a.population, '') = 'institutional_prospect'
+  AND (
+      i.tier = 'tier_1'
+      OR (i.tier = 'tier_2'
+          AND (
+              LOWER(COALESCE(i.client_decision, '')) IN ('approved', 'approved_no_campaign')
+              OR COALESCE(i.fit_score, 0) >= 0.60
+          )
+      )
+  )
+  AND NOT (
+      EXISTS (
+          SELECT 1 FROM crm_contacts c
+          WHERE lower(regexp_replace(c.investor_name, '[^a-zA-Z0-9]', '', 'g'))
+              = lower(regexp_replace(a.canonical_name, '[^a-zA-Z0-9]', '', 'g'))
+      )
+      OR EXISTS (
+          SELECT 1 FROM crm_leads l
+          WHERE l.status != 'passed'
+            AND (
+                l.name_key = lower(regexp_replace(a.canonical_name, '[^a-zA-Z0-9]', '', 'g'))
+                OR lower(regexp_replace(l.investor_name, '[^a-zA-Z0-9]', '', 'g'))
+                    = lower(regexp_replace(a.canonical_name, '[^a-zA-Z0-9]', '', 'g'))
+            )
+      )
+  )
+  AND lower(regexp_replace(a.canonical_name, '[^a-zA-Z0-9]', '', 'g')) NOT IN (
+      SELECT name_key FROM crm_dismissed
+  );
+
 CREATE OR REPLACE VIEW v_crm_needs_enrichment AS
 SELECT
     w.lead_id,

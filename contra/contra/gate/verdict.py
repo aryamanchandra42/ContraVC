@@ -13,6 +13,20 @@ from contra.intelligence.brief import IntelligenceBrief
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
+_DEFAULT_GATE_EXPLAIN_MAX_TOKENS = 8192
+
+
+def _gate_explain_max_tokens() -> int:
+    import os
+
+    raw = os.environ.get("GATE_EXPLAIN_MAX_TOKENS", "").strip()
+    if not raw:
+        return _DEFAULT_GATE_EXPLAIN_MAX_TOKENS
+    try:
+        return max(2048, int(raw))
+    except ValueError:
+        return _DEFAULT_GATE_EXPLAIN_MAX_TOKENS
+
 
 def _load_yaml(name: str) -> Dict[str, Any]:
     path = ROOT / "prompts" / "navigator" / name
@@ -185,29 +199,60 @@ def _build_explain_prompt(
     )
 
 
-def _get_gate_llm_client():
+def _gate_model_for_mode(screening_mode: str) -> str:
+    """Mode-aware NIM catalog model (institutional vs NFX individual)."""
+    import os
+
+    if screening_mode == "nfx_individual":
+        return (
+            os.environ.get("GATE_LLM_MODEL_NFX", "").strip()
+            or "nvidia/nemotron-3-super-120b-a12b"
+        )
+    return (
+        os.environ.get("GATE_LLM_MODEL_INSTITUTIONAL", "").strip()
+        or "writer/palmyra-fin-70b-32k"
+    )
+
+
+def _get_gate_llm_client(screening_mode: str = "institutional"):
     """
-    Return the best available LLM client for gate decisions.
+    Return the best available LLM client for gate verdict decisions.
 
-    Priority (highest quality first):
-      1. GATE_LLM_PROVIDER / GATE_LLM_MODEL env vars (explicit gate override)
-      2. OPENAI_API_KEY → gpt-4o  (best structured-reasoning quality)
-      3. PULSE_LLM_PROVIDER default (Groq Llama / Anthropic / etc.)
+    Priority:
+      1. GATE_LLM_PROVIDER / GATE_LLM_MODEL env vars (explicit override)
+      2. ANTHROPIC_API_KEY / CLAUDE_API_KEY → claude-haiku-4-5 (cost-efficient default)
+      3. OPENAI_API_KEY → gpt-4o
+      4. PULSE_LLM_PROVIDER default (Groq / etc.)
 
-    To use GPT-4o for gate decisions: set OPENAI_API_KEY in .env and optionally
-    add GATE_LLM_PROVIDER=openai (or leave it — auto-detection kicks in).
-    GPT-4o costs ~$0.016/screen vs Groq free tier; batch of 38 ≈ $0.60.
+    NVIDIA NIM is used upstream via knowledge_enrich.py — not as the default verdict model.
     """
     import os
-    from agents.research.llm_client import LLMUnavailable, get_llm_client
+    from agents.research.llm_client import (
+        HAIKU_MODEL,
+        LLMUnavailable,
+        anthropic_configured,
+        get_anthropic_haiku_client,
+        get_llm_client,
+    )
 
-    # Explicit override
     gate_provider = os.environ.get("GATE_LLM_PROVIDER", "").strip()
     gate_model = os.environ.get("GATE_LLM_MODEL", "").strip()
     if gate_provider:
-        return get_llm_client(provider=gate_provider, model=gate_model or None)
+        if gate_provider == "nvidia" and not gate_model:
+            model = _gate_model_for_mode(screening_mode)
+        elif gate_provider == "anthropic" and not gate_model:
+            model = HAIKU_MODEL
+        else:
+            model = gate_model or None
+        return get_llm_client(provider=gate_provider, model=model)
 
-    # Auto-prefer OpenAI gpt-4o when key is available — better reasoning quality
+    if anthropic_configured():
+        return get_anthropic_haiku_client()
+
+    pulse = os.environ.get("PULSE_LLM_PROVIDER", "").strip().lower()
+    if pulse == "anthropic":
+        return get_llm_client(provider="anthropic")
+
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if openai_key:
         try:
@@ -215,8 +260,43 @@ def _get_gate_llm_client():
         except LLMUnavailable:
             pass
 
-    # Fall back to the configured default provider
     return get_llm_client()
+
+
+# ---------------------------------------------------------------------------
+# Escalation — strong model double-checks borderline / positive verdicts
+# ---------------------------------------------------------------------------
+
+def _escalation_enabled() -> bool:
+    import os
+
+    return os.environ.get("GATE_ESCALATION", "true").lower().strip() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _escalation_model() -> str:
+    import os
+
+    return os.environ.get("GATE_ESCALATION_MODEL", "").strip() or "claude-sonnet-4-5"
+
+
+def _run_explain(llm, name, brief, assessment, web_context, drill_results,
+                 analyst_facts, allocation_evidence, nfx_context,
+                 screening_mode) -> GateExplanation:
+    system_cfg = _load_yaml("gate_explain.yaml")
+    system = system_cfg.get("system") or "You are an LP screening explainer. Return GateExplanation JSON."
+    prompt = _build_explain_prompt(
+        name, brief, assessment, web_context, drill_results,
+        analyst_facts, allocation_evidence, nfx_context,
+        screening_mode=screening_mode,
+    )
+    return llm.structured(
+        prompt=prompt,
+        response_model=GateExplanation,
+        system=system,
+        max_tokens=_gate_explain_max_tokens(),
+    )
 
 
 def explain(
@@ -237,30 +317,78 @@ def explain(
     own llm_recommendation (yes/no/review) plus llm_core_gates assessed from web
     evidence — these can fill gaps the evaluator left as 'unknown'.
     """
-    from agents.research.llm_client import LLMUnavailable
-
-    try:
-        llm = _get_gate_llm_client()
-    except LLMUnavailable as exc:
-        raise RuntimeError(
-            "LLM required for contra gate. Set PULSE_LLM_PROVIDER=groq/anthropic/openai "
-            "with a matching API key, or set GATE_LLM_PROVIDER explicitly."
-        ) from exc
-
-    system_cfg = _load_yaml("gate_explain.yaml")
-    system = system_cfg.get("system") or "You are an LP screening explainer. Return GateExplanation JSON."
-    prompt = _build_explain_prompt(
+    explanation, _meta = explain_with_escalation(
         name, brief, assessment, web_context, drill_results,
         analyst_facts, allocation_evidence, nfx_context,
         screening_mode=screening_mode,
     )
+    return explanation
 
-    return llm.structured(
-        prompt=prompt,
-        response_model=GateExplanation,
-        system=system,
-        max_tokens=1800,
+
+def explain_with_escalation(
+    name: str,
+    brief: IntelligenceBrief,
+    assessment: GateAssessment,
+    web_context: str,
+    drill_results: List[Dict[str, Any]],
+    analyst_facts: Optional[List[str]] = None,
+    allocation_evidence: str = "",
+    nfx_context: Optional[str] = None,
+    screening_mode: str = "institutional",
+) -> tuple[GateExplanation, Dict[str, Any]]:
+    """
+    Tiered verdict:
+
+    1. TRIAGE — cheap model (Haiku) screens every LP. Clear NOs stop here; the
+       bulk of an NFX batch is NO, so most spend stays on the cheap tier.
+    2. ESCALATION — when triage says "yes" or "review" (the verdicts that drive
+       outreach and analyst time), a stronger model (default claude-sonnet-4-5)
+       re-decides with the same evidence. Its verdict wins.
+
+    Returns (explanation, meta) where meta = {"model": ..., "escalated": bool}.
+    Disable via GATE_ESCALATION=false; model via GATE_ESCALATION_MODEL.
+    """
+    from agents.research.llm_client import LLMUnavailable, anthropic_configured, get_llm_client
+
+    try:
+        triage_llm = _get_gate_llm_client(screening_mode=screening_mode)
+    except LLMUnavailable as exc:
+        raise RuntimeError(
+            "LLM required for contra gate. Set PULSE_LLM_PROVIDER=anthropic and ANTHROPIC_API_KEY, "
+            "or set GATE_LLM_PROVIDER explicitly."
+        ) from exc
+
+    explanation = _run_explain(
+        triage_llm, name, brief, assessment, web_context, drill_results,
+        analyst_facts, allocation_evidence, nfx_context, screening_mode,
     )
+    meta: Dict[str, Any] = {
+        "model": getattr(triage_llm, "model", "unknown"),
+        "escalated": False,
+    }
+
+    esc_model = _escalation_model()
+    should_escalate = (
+        _escalation_enabled()
+        and explanation.llm_recommendation in ("yes", "review")
+        and anthropic_configured()
+        and getattr(triage_llm, "model", "") != esc_model
+    )
+    if should_escalate:
+        try:
+            esc_llm = get_llm_client(provider="anthropic", model=esc_model)
+            explanation = _run_explain(
+                esc_llm, name, brief, assessment, web_context, drill_results,
+                analyst_facts, allocation_evidence, nfx_context, screening_mode,
+            )
+            meta = {"model": esc_model, "escalated": True}
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Gate escalation failed for '%s' (%s) — keeping triage verdict", name, exc
+            )
+
+    return explanation, meta
 
 
 # ---------------------------------------------------------------------------

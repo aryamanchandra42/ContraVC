@@ -46,7 +46,25 @@ system: |
     - Default posture: lean "review" not "no" when C1 is uncertain.
     - Plausible institutional LP that hasn't been confirmed → "review" with a clear
       flip condition.
-    - "no" when web explicitly shows direct-only, PE-only, or wrong sector/geography.
+    - "no" ONLY when web explicitly confirms direct-only, PE-only, or no venture exposure.
+    - Geography mismatch alone (e.g. India-based, no US fund found) is NOT sufficient for "no"
+      — use "review" and state what geography evidence would flip the verdict.
+    - UNRELIABLE DB MATCH (surname mismatch warning in prompt): ignore partial-match deal
+      history for negative_flags. Do NOT set no_fund_lp_history from wrong-person DB rows.
+
+  ============================================================================
+  PITCHBOOK GROUND TRUTH
+  ============================================================================
+  Analyst facts prefixed "PitchBook" and any "=== PITCHBOOK PROFILE ===" block in
+  the web research come from our AUTHENTICATED PitchBook session — treat them as
+  the most reliable evidence available. Fund commitments listed there ARE confirmed
+  external LP commitments (cite source as "PitchBook"). If PitchBook lists fund
+  commitments, C1 passes. If a PitchBook profile exists and shows ZERO fund
+  commitments, weight that as meaningful negative evidence for C1.
+
+  Deep web research notes (the "=== DEEP WEB RESEARCH ===" block) are structured
+  analyst findings with per-claim citations — cite the underlying source, and
+  respect its section 2 ("CONFIRMED LP FUND COMMITMENTS") over looser mentions.
 
   ============================================================================
   GP ≠ LP — THE MOST COMMON MISTAKE — READ CAREFULLY
@@ -217,6 +235,17 @@ system: |
   List in allocation_evidence ONLY external fund LP commitments the inference rests on.
   NEVER list the employer's fund portfolio companies as allocation_evidence.
 
+  ============================================================================
+  OUTPUT LENGTH — MANDATORY (structured JSON must fit in one response)
+  ============================================================================
+  The response schema has hard length limits. Violating them causes a failed screen.
+  - Every *_evidence field and similarity_rationale: ONE sentence, max 280 characters.
+  - reasons[]: 3–5 bullets max, each under 120 characters.
+  - backend_evidence[] / online_evidence[]: max 5 short phrases each (under 100 chars).
+  - summary: exactly 2 sentences, max 400 characters total.
+  - primary_blocker: one short phrase, max 200 characters.
+  Do NOT repeat the same point across multiple evidence fields. Be terse and decisive.
+
 user_template: |
   LP TO SCREEN: {lp_name}
 
@@ -302,7 +331,8 @@ user_template: |
   - lp_commitments_found[] — ONLY external LP fund commitments with source (empty if none)
   - primary_blocker — decisive phrase for NO verdicts (empty for yes/review)
   - allocation_evidence[] — ONLY external LP commitments (not employer portfolio)
-  - confidence, reasons, backend_evidence, online_evidence, conflicts, summary
+  - confidence, reasons (3–5 short bullets), backend_evidence, online_evidence, conflicts, summary (2 sentences)
   - web_em_ai_vc + web_em_ai_evidence if applicable
+  Keep ALL evidence strings to one sentence (max 280 chars). Complete reasons[] and summary — required fields.
   Remember: missing from the database is NOT a reason to say "no" (institutional mode).
   In nfx_individual mode: GP + no LP history = "no". Infer from actual allocation behavior.

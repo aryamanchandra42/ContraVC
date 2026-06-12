@@ -472,7 +472,8 @@ def run_enrichment(
     -------
     Dict with counts: targeted, searched, llm_called, columns_updated, queued, errors
     """
-    from agents.research.llm_client import get_llm_client, LLMUnavailable
+    from agents.research.nim_router import get_enrich_llm_client
+    from agents.research.llm_client import LLMUnavailable
     from agents.research.web_search import get_search_provider, SearchUnavailable
 
     # Load thresholds
@@ -483,7 +484,7 @@ def run_enrichment(
 
     # Get providers (graceful degradation)
     try:
-        llm_client = get_llm_client()
+        llm_client = get_enrich_llm_client()
     except LLMUnavailable as exc:
         logger.warning("LLM unavailable — enrichment agent will not run: %s", exc)
         return {

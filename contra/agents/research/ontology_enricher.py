@@ -327,6 +327,17 @@ class PulseGroqExtractor(_BaseLLMOntologyExtractor):
     _llm_provider = "groq"
 
 
+class PulseNvidiaExtractor(_BaseLLMOntologyExtractor):
+    """
+    NVIDIA NIM — concrete implementation for ENRICH_LLM_PROVIDER=nvidia.
+    Requires NVAPI_API_KEY and/or NIM_BASE_URL.
+    """
+    name = "nvidia_ontology"
+    version = "1.0.0"
+    deterministic = False
+    _llm_provider = "nvidia"
+
+
 # ---------------------------------------------------------------------------
 # Extractor factory (replaces stubs)
 # ---------------------------------------------------------------------------
@@ -336,12 +347,16 @@ def get_llm_ontology_extractor() -> Optional[_BaseLLMOntologyExtractor]:
     Return the appropriate LLM ontology extractor based on PULSE_LLM_PROVIDER.
     Returns None if provider is 'none' or unset (heuristic-only mode).
     """
-    provider = os.getenv("PULSE_LLM_PROVIDER", "none").lower().strip()
+    provider = (
+        os.getenv("ENRICH_LLM_PROVIDER", "").strip()
+        or os.getenv("PULSE_LLM_PROVIDER", "none")
+    ).lower().strip()
     mapping = {
         "anthropic": PulseAnthropicExtractor,
         "openai": PulseOpenAIExtractor,
         "gemini": PulseGeminiExtractor,
         "groq": PulseGroqExtractor,
+        "nvidia": PulseNvidiaExtractor,
     }
     cls = mapping.get(provider)
     return cls() if cls else None

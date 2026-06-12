@@ -51,6 +51,9 @@ _LP_COMMIT_SIGNALS = (
 )
 
 _STRONG_OR_MODERATE = {"strong", "moderate"}
+_CONFIRMED_MISFIT_FLAGS = {
+    "pe_only", "direct_only", "no_venture", "angel_only", "nfx_angel_only",
+}
 
 
 def _has_external_lp_commits(evidence_list: List[str]) -> bool:
@@ -209,6 +212,34 @@ def validate_and_patch(
                 )
             conflicts.append(
                 "Verdict overridden to 'no' — nfx_individual mode: no external fund LP history found"
+            )
+
+    # --- Rule 3c: institutional + thin-evidence NO → REVIEW ----------------------
+    # Institutional screens default to REVIEW when C1 is unconfirmed. Geography alone
+    # or an unreliable DB match must not produce a final NO without confirmed misfit.
+    if (
+        screening_mode == "institutional"
+        and explanation.llm_recommendation == "no"
+        and not updates.get("llm_recommendation")
+    ):
+        confirmed_misfit = bool(set(negative_flags) & _CONFIRMED_MISFIT_FLAGS)
+        c1_unconfirmed = explanation.c1_status in ("unknown", None)
+        if c1_unconfirmed and not confirmed_misfit:
+            updates["llm_recommendation"] = "review"
+            if explanation.confidence == "high":
+                updates["confidence"] = "medium"
+            if not explanation.primary_blocker:
+                updates["primary_blocker"] = ""
+            summary = updates.get("summary", explanation.summary) or ""
+            if "flip to yes" not in summary.lower():
+                updates["summary"] = (
+                    f"{summary.rstrip()} "
+                    "Flip to YES if: documented LP commitment to at least one VC fund "
+                    "(emerging-manager or Fund I) is confirmed."
+                ).strip()
+            conflicts.append(
+                "Verdict upgraded NO→REVIEW: institutional mode, C1 unconfirmed, "
+                "no confirmed direct-only/PE-only misfit"
             )
 
     # --- Rule 3b: nfx_individual + zero-evidence REVIEW → force NO ---------------

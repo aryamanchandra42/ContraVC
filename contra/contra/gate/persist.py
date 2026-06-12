@@ -165,9 +165,13 @@ def persist_gate_findings(
     if not updates and not explanation.summary:
         return brief.allocator_id
 
-    canonical_name = brief.matched_name or name
+    trusted_db = not brief.match_untrusted and (
+        brief.match_method in ("exact", "alias")
+        or (brief.match_method == "fuzzy" and brief.match_confidence >= 0.92)
+    )
+    canonical_name = (brief.matched_name or name) if trusted_db else name
     try:
-        allocator_id = brief.allocator_id
+        allocator_id = brief.allocator_id if trusted_db else None
         if not allocator_id:
             allocator_id = _create_allocator(con, canonical_name, name, updates, session_id)
             logger.info("Gate persist: created allocator %s for %s", allocator_id, canonical_name)

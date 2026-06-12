@@ -43,11 +43,19 @@ class ChatResponse(BaseModel):
 @router.post("/gate", response_model=GateResult)
 def gate(req: GateRequest, con=Depends(get_db)) -> GateResult:
     try:
-        return run_gate(con, req.name, analyst_facts=req.analyst_facts or [])
+        result = run_gate(con, req.name, analyst_facts=req.analyst_facts or [])
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    try:
+        from contra.crm.writer import record_gate_review
+        record_gate_review(con, result)
+    except Exception:
+        pass
+
+    return result
 
 
 @router.post("/gate/chat", response_model=ChatResponse)
