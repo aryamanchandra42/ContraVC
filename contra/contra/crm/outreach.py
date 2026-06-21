@@ -250,4 +250,11 @@ def update_draft_status(con, draft_id: str, status: str) -> bool:
             "WHERE investor_name = ? AND status = 'active'",
             [row[0]],
         )
+    elif status == "draft":
+        # Allow undoing a mistaken "sent" mark
+        con.execute(
+            "UPDATE crm_leads SET status = 'active', updated_at = NOW() "
+            "WHERE investor_name = ? AND status = 'contacted'",
+            [row[0]],
+        )
     return True
