@@ -344,6 +344,21 @@ def run_gate(
         if new_id and not brief.allocator_id:
             brief.allocator_id = new_id
 
+        # Extract analyst-provided contact facts (email/LinkedIn/X pasted during gate)
+        if brief.allocator_id and analyst_facts:
+            try:
+                from contra.intelligence.contact_extract import extract_and_persist_gate_contacts
+                extract_and_persist_gate_contacts(
+                    con,
+                    lp_name=name,
+                    allocator_id=brief.allocator_id,
+                    web_context="",
+                    source_urls=[],
+                    analyst_facts=analyst_facts,
+                )
+            except Exception:
+                pass
+
         # Durable LP dossier — outlives the 30-minute in-memory session
         from contra.crm.dossier import upsert_dossier_from_gate
 

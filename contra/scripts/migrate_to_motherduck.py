@@ -37,8 +37,12 @@ tables = [r[0] for r in local.execute(
 
 print(f"Found {len(tables)} tables: {tables}")
 
-print("Connecting to MotherDuck (md:contra) …")
-cloud = duckdb.connect("md:contra")
+print("Connecting to MotherDuck …")
+cloud = duckdb.connect("md:")
+
+print("Creating database 'contra' on MotherDuck (if not exists) …")
+cloud.execute("CREATE DATABASE IF NOT EXISTS contra")
+cloud.execute("USE contra")
 
 print("Attaching local DB inside cloud connection …")
 cloud.execute(f"ATTACH '{LOCAL_DB}' AS local_db (READ_ONLY)")

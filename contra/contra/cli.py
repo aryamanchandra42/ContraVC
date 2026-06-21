@@ -560,3 +560,72 @@ def _table_exists_safe(con, name: str) -> bool:
         return True
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------------------
+# contra phantombuster
+# ---------------------------------------------------------------------------
+
+pb_app = typer.Typer(help="Phantombuster API integration")
+app.add_typer(pb_app, name="phantombuster")
+
+
+@pb_app.command("run")
+def phantombuster_run_cmd(
+    agent_id: Optional[str] = typer.Option(
+        None, "--agent-id", "-a",
+        help="Phantombuster agent ID (overrides PHANTOMBUSTER_AGENT_ID env var)",
+    ),
+    timeout: int = typer.Option(
+        3600, "--timeout", help="Max seconds to wait for the phantom to complete"
+    ),
+    no_csv: bool = typer.Option(False, "--no-csv", help="Skip saving a CSV snapshot"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """
+    Launch a Phantombuster phantom, ingest results, and run LinkedIn contact matching.
+
+    Prerequisites:
+      1. Configure PHANTOMBUSTER_API_KEY in contra/.env
+      2. Configure PHANTOMBUSTER_AGENT_ID (Sales Navigator Search Export)
+         or pass --agent-id directly
+      3. The phantom must already be set up in Phantombuster UI with your
+         Sales Navigator search URL and desired export columns
+
+    After this command contacts appear in allocator_contacts and will be
+    surfaced by 'contra intel contacts' and GET /api/contacts/{name}.
+    """
+    from agents.db import get_conn
+    from agents.ingestion.phantombuster_client import PhantombusterError
+    from agents.ingestion.phantombuster_sync import run_phantombuster_sync
+
+    con = get_conn()
+    try:
+        rprint("[bold]Contra Phantombuster Sync[/bold]")
+        stats = run_phantombuster_sync(
+            con,
+            agent_id=agent_id or None,
+            timeout_sec=timeout,
+            save_csv=not no_csv,
+        )
+    except PhantombusterError as exc:
+        rprint(f"[red]Phantombuster error: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    except Exception as exc:
+        rprint(f"[red]Unexpected error: {type(exc).__name__}: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    finally:
+        con.close()
+
+    if json_out:
+        rprint(json.dumps(stats, indent=2, default=str))
+        return
+
+    rprint(f"\n[green]Sync complete[/green]")
+    rprint(f"  Container      : {stats.get('container_id')}")
+    rprint(f"  Rows fetched   : {stats.get('rows_fetched', 0)}")
+    rprint(f"  Rows inserted  : {stats.get('rows_inserted', 0)}")
+    rprint(f"  Allocators matched : {stats.get('matched', 0)}")
+    rprint(f"  Aliases created    : {stats.get('aliases_created', 0)}")
+    if stats.get("csv_path"):
+        rprint(f"  CSV snapshot   : {stats['csv_path']}")

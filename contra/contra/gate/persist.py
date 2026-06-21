@@ -198,6 +198,22 @@ def persist_gate_findings(
             },
         }
         _write_research_raw_record(con, allocator_id, 0, payload)
+
+        # Extract contact channels (email/LinkedIn/X) from web research
+        try:
+            from contra.intelligence.contact_extract import extract_and_persist_gate_contacts
+            contact_stats = extract_and_persist_gate_contacts(
+                con,
+                lp_name=name,
+                allocator_id=allocator_id,
+                web_context=web_context or "",
+                source_urls=list(explanation.online_evidence or []),
+            )
+            if any(contact_stats.values()):
+                logger.info("Gate contact extract for %s: %s", name, contact_stats)
+        except Exception as ce:
+            logger.debug("Gate contact extract skipped for %s: %s", name, ce)
+
         return allocator_id
     except Exception as exc:
         logger.warning("Gate persist failed for %s: %s", name, exc)

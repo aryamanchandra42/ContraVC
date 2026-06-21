@@ -508,3 +508,29 @@ def migrate_crm_outreach(con) -> bool:
         "CREATE INDEX IF NOT EXISTS idx_crm_outreach_lead ON crm_outreach_drafts(lead_id)"
     )
     return True
+
+
+def migrate_allocator_contacts_v2(con) -> bool:
+    """
+    Add twitter_url and channels_json to allocator_contacts.
+
+    twitter_url  — X/Twitter profile URL (x.com/... or twitter.com/...)
+    channels_json — structured list of all contact channels with source + confidence:
+        [{"type":"email","value":"...","source":"gate_research","confidence":0.85}, ...]
+
+    Runs as ALTER TABLE ... ADD COLUMN IF NOT EXISTS so it is safe to re-run.
+    Returns True if any column was added.
+    """
+    ran = False
+    existing_cols = {
+        r[0] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'allocator_contacts'"
+        ).fetchall()
+    }
+    if "twitter_url" not in existing_cols:
+        con.execute("ALTER TABLE allocator_contacts ADD COLUMN IF NOT EXISTS twitter_url VARCHAR")
+        ran = True
+    if "channels_json" not in existing_cols:
+        con.execute("ALTER TABLE allocator_contacts ADD COLUMN IF NOT EXISTS channels_json JSON")
+        ran = True
+    return ran

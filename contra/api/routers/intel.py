@@ -113,34 +113,29 @@ def paths(
 
 @router.get("/contacts/{name}", response_model=Dict[str, Any])
 def contacts(name: str, con=Depends(get_db)) -> Dict[str, Any]:
-    from contra.intelligence.resolver import norm_key, resolve
+    from contra.intelligence.channel_recommend import enrich_profile_with_warm_paths
+    from contra.intelligence.contact_resolver import resolve_contacts
 
-    match = resolve(con, name)
-    if not match.allocator_id:
-        return {"match": None, "allocator_id": None, "contacts": [], "crm": []}
+    profile = resolve_contacts(con, name)
+    profile = enrich_profile_with_warm_paths(con, profile)
 
-    li = con.execute(
-        """
-        SELECT full_name, title, company, email, linkedin_url, location, source, match_confidence
-        FROM allocator_contacts
-        WHERE allocator_id = ?
-        ORDER BY match_confidence DESC NULLS LAST
-        """,
-        [match.allocator_id],
-    ).fetchdf()
+    result = profile.to_api_dict()
 
-    crm = con.execute(
-        """
-        SELECT investor_name, investor_type, investor_location, crm_status
-        FROM crm_contacts WHERE name_key = ? LIMIT 3
-        """,
-        [norm_key(name)],
-    ).fetchdf()
+    # Back-compat: include legacy "match" / "crm" fields
+    result["match"] = profile.investor_name if profile.allocator_id else None
+    result["match_confidence"] = profile.confidence
 
-    return {
-        "match": match.matched_name,
-        "allocator_id": match.allocator_id,
-        "match_confidence": match.confidence,
-        "contacts": li.to_dict(orient="records"),
-        "crm": crm.to_dict(orient="records"),
-    }
+    try:
+        from contra.intelligence.resolver import norm_key
+        crm = con.execute(
+            """
+            SELECT investor_name, investor_type, investor_location, crm_status
+            FROM crm_contacts WHERE name_key = ? LIMIT 3
+            """,
+            [norm_key(name)],
+        ).fetchdf()
+        result["crm"] = crm.to_dict(orient="records")
+    except Exception:
+        result["crm"] = []
+
+    return result

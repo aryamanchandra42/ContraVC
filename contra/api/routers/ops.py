@@ -1,8 +1,8 @@
-"""POST /api/enrich, POST /api/refresh — pipeline ops (write connections)."""
+"""POST /api/enrich, POST /api/refresh, POST /api/phantombuster/run — pipeline ops."""
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -52,3 +52,35 @@ def refresh() -> Dict[str, Any]:
         "started_at": result.started_at,
         "completed_at": result.completed_at,
     }
+
+
+class PhantombusterRunRequest(BaseModel):
+    agent_id: Optional[str] = None
+    timeout_sec: int = 3600
+    save_csv: bool = True
+
+
+@router.post("/phantombuster/run", response_model=Dict[str, Any])
+def phantombuster_run(req: PhantombusterRunRequest, con=Depends(get_db)) -> Dict[str, Any]:
+    """
+    Launch a Phantombuster phantom, ingest output, run LinkedIn contact matching.
+
+    Requires PHANTOMBUSTER_API_KEY env var.
+    agent_id defaults to PHANTOMBUSTER_AGENT_ID env var when not provided.
+    """
+    from agents.ingestion.phantombuster_client import PhantombusterError
+    from agents.ingestion.phantombuster_sync import run_phantombuster_sync
+
+    try:
+        stats = run_phantombuster_sync(
+            con,
+            agent_id=req.agent_id or None,
+            timeout_sec=req.timeout_sec,
+            save_csv=req.save_csv,
+        )
+        reset_shared_connection()
+        return stats
+    except PhantombusterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc

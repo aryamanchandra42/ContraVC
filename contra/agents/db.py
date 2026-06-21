@@ -69,6 +69,7 @@ def _run_migrations(con: duckdb.DuckDBPyConnection) -> None:
         migrate_crm_gate_reviews,
         migrate_lp_dossiers,
         migrate_crm_outreach,
+        migrate_allocator_contacts_v2,
     )
     migrate_icp_scores_v41(con)
     migrate_signal_expansion(con)
@@ -79,6 +80,7 @@ def _run_migrations(con: duckdb.DuckDBPyConnection) -> None:
     migrate_crm_gate_reviews(con)
     migrate_lp_dossiers(con)
     migrate_crm_outreach(con)
+    migrate_allocator_contacts_v2(con)
 
 
 def ensure_views(con) -> None:

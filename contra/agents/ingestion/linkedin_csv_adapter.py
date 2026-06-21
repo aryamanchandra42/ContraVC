@@ -22,44 +22,7 @@ from agents.ingestion.base import (
     hash_content,
     make_source_record_id,
 )
-
-_LINKEDIN_HEADERS = {
-    "profileurl", "linkedinurl", "linkedin profile url", "profile url",
-    "firstname", "first name", "lastname", "last name", "fullname", "full name",
-    "companyname", "company name", "company", "title", "headline", "position",
-    "location", "industry", "salesnavigatorurl", "email", "professionalemail",
-    "connectiondegree", "connections", "summary",
-}
-
-_COLUMN_ALIASES: dict[str, str] = {
-    "profileurl": "_li_profile_url",
-    "linkedinurl": "_li_profile_url",
-    "linkedin profile url": "_li_profile_url",
-    "profile url": "_li_profile_url",
-    "firstname": "_li_first_name",
-    "first name": "_li_first_name",
-    "lastname": "_li_last_name",
-    "last name": "_li_last_name",
-    "fullname": "_li_full_name",
-    "full name": "_li_full_name",
-    "name": "_li_full_name",
-    "companyname": "_li_company",
-    "company name": "_li_company",
-    "company": "_li_company",
-    "current company": "_li_company",
-    "title": "_li_title",
-    "headline": "_li_headline",
-    "position": "_li_title",
-    "location": "_li_location",
-    "industry": "_li_industry",
-    "email": "_li_email",
-    "professionalemail": "_li_email",
-    "professional email": "_li_email",
-    "connectiondegree": "_li_connection_degree",
-    "connections": "_li_connection_degree",
-    "summary": "_li_summary",
-    "salesnavigatorurl": "_li_sales_nav_url",
-}
+from agents.ingestion.linkedin_normalize import LINKEDIN_HEADERS, normalize_linkedin_row
 
 
 def _detect_linkedin_csv(path: Path) -> bool:
@@ -70,7 +33,7 @@ def _detect_linkedin_csv(path: Path) -> bool:
         with path.open(newline="", encoding="utf-8-sig", errors="replace") as fh:
             header = next(csv.reader(fh), [])
         lowered = {c.strip().lower() for c in header}
-        hits = lowered & _LINKEDIN_HEADERS
+        hits = lowered & LINKEDIN_HEADERS
         if "profileurl" in hits or "linkedinurl" in hits:
             return True
         if len(hits) >= 3 and ("firstname" in hits or "full name" in hits or "fullname" in hits):
@@ -105,37 +68,17 @@ class LinkedInCsvAdapter(IngestionAdapter):
             if reader.fieldnames is None:
                 return
 
-            alias_map: dict[str, str] = {}
-            for col in reader.fieldnames:
-                key = col.strip().lower()
-                if key in _COLUMN_ALIASES:
-                    alias_map[col] = _COLUMN_ALIASES[key]
-
             for row_idx, row in enumerate(reader, start=2):
-                row_dict: dict = {}
-                for original_col, value in row.items():
-                    if original_col is None:
-                        continue
-                    cleaned = value.strip() if isinstance(value, str) else (value or "")
-                    row_dict[original_col] = cleaned
-                    if original_col in alias_map:
-                        row_dict[alias_map[original_col]] = cleaned
-
-                if not row_dict.get("_li_full_name"):
-                    first = row_dict.get("_li_first_name", "")
-                    last = row_dict.get("_li_last_name", "")
-                    combined = f"{first} {last}".strip()
-                    if combined:
-                        row_dict["_li_full_name"] = combined
-
-                if not row_dict.get("_li_full_name") and not row_dict.get("_li_company"):
+                normalized = normalize_linkedin_row(
+                    dict(row),
+                    source_file=source.relative_path,
+                    row_number=row_idx,
+                )
+                if normalized is None:
                     continue
 
-                row_dict["_source_platform"] = "linkedin_export"
-                row_dict["_row_number"] = row_idx
-
                 source_offset = f"row:{row_idx}"
-                content_hash = hash_content(row_dict)
+                content_hash = hash_content(normalized)
                 source_record_id = make_source_record_id(
                     source.relative_path, source_offset, content_hash
                 )
@@ -146,7 +89,7 @@ class LinkedInCsvAdapter(IngestionAdapter):
                     source_type=self.source_type,
                     source_offset=source_offset,
                     content_hash=content_hash,
-                    raw_content=row_dict,
+                    raw_content=normalized,
                     schema_version=self.schema_version,
                 )
 
