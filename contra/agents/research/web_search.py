@@ -310,8 +310,11 @@ class OpenAIWebSearchProvider:
         prompt = (
             f"Search the web for: {query}\n\n"
             "Report only concrete findings relevant to the query as terse bullet "
-            "points, each with its source. Prefer primary sources (company sites, "
-            "press releases, regulatory filings, LinkedIn, Crunchbase, PitchBook). "
+            "points, each with its source. IMPORTANT: If you find any contact information "
+            "(email addresses, LinkedIn profile URLs, X/Twitter URLs), you MUST "
+            "include them exactly as they appear in the source text. "
+            "Prefer primary sources (company sites, press releases, regulatory filings, "
+            "LinkedIn, Crunchbase, PitchBook). "
             "If nothing relevant is found, reply exactly: No relevant results."
         )
         text, citations = self._responses_with_search(prompt)

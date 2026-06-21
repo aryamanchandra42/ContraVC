@@ -36,6 +36,7 @@ class CrmLead(BaseModel):
     investor_location: Optional[str] = None
     investor_details: Optional[str] = None
     contacts_json: Optional[dict] = None
+    contact_email: Optional[str] = None
     pipeline_stage: Optional[str] = None
     computed_score: Optional[float] = None
     manual_rank: Optional[int] = None

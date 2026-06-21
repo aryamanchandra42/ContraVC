@@ -60,21 +60,31 @@ def _safe_float(val: Any) -> Optional[float]:
 
 
 def _workspace_row_to_lead(row: tuple, cols: List[str]) -> CrmLead:
-    data = dict(zip(cols, row))
+    data = {k.lower(): v for k, v in zip(cols, row)}
     for ts in ("created_at", "updated_at"):
         if data.get(ts) is not None:
             data[ts] = str(data[ts])
+            
+    parsed_contacts = _parse_contacts(data.get("contacts_json"))
+    contact_email = None
+    if isinstance(parsed_contacts, dict) and "contacts" in parsed_contacts:
+        for c in parsed_contacts.get("contacts", []):
+            if c.get("email"):
+                contact_email = c["email"]
+                break
+                
     return CrmLead(
-        lead_id=str(data["lead_id"]),
-        investor_name=data["investor_name"],
+        lead_id=str(data.get("lead_id", "")),
+        investor_name=data.get("investor_name", ""),
         name_key=data.get("name_key", ""),
         allocator_id=data.get("allocator_id"),
-        source=data["source"],
-        status=data["status"],
+        source=data.get("source", ""),
+        status=data.get("status", ""),
         investor_type=data.get("investor_type"),
         investor_location=data.get("investor_location"),
         investor_details=data.get("investor_details"),
-        contacts_json=_parse_contacts(data.get("contacts_json")),
+        contacts_json=parsed_contacts,
+        contact_email=contact_email,
         pipeline_stage=data.get("pipeline_stage"),
         computed_score=_safe_float(data.get("computed_score")),
         manual_rank=int(data["manual_rank"]) if data.get("manual_rank") is not None else None,

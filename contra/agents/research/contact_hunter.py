@@ -32,7 +32,7 @@ def hunt_and_persist_contacts(
         logger.warning(f"Contact Hunter: Web search unavailable for {lp_name}")
         return {"emails": 0, "linkedin": 0, "twitter": 0}
         
-    query = f'"{lp_name}" email OR contact OR linkedin'
+    query = f'"{lp_name}" email address OR contact OR linkedin'
     logger.info(f"Contact Hunter: Searching web for {lp_name} contacts...")
     
     try:
