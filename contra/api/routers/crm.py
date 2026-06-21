@@ -463,6 +463,77 @@ def update_dossier_notes(
 
 
 # ---------------------------------------------------------------------------
+# Rejection tagging
+# ---------------------------------------------------------------------------
+
+class RejectionTagRequest(BaseModel):
+    reason: str          # fund_size | geo_mandate | deployment_pause | placement_agent | other
+    note: str = ""       # LP's exact words or free-text context
+    revisit_date: Optional[str] = None   # ISO date 'YYYY-MM-DD'; required for deployment_pause
+
+
+class RejectionTagResponse(BaseModel):
+    investor_name: str
+    reason: str
+    new_status: str
+    revisit_date: Optional[str] = None
+
+
+@router.post("/crm/leads/{lead_id}/reject", response_model=RejectionTagResponse)
+def tag_lead_rejection(
+    lead_id: str, body: RejectionTagRequest, con=Depends(get_db)
+) -> RejectionTagResponse:
+    """
+    Record a structured rejection reason on a CRM lead and its dossier.
+
+    Reasons:
+      fund_size        — sets status=excluded (suppress until Fund II)
+      geo_mandate      — sets status=excluded (hard exclude)
+      deployment_pause — sets status=paused; revisit_date required
+      placement_agent  — keeps status=active; flags for GP review
+      other            — keeps status=active; note required
+    """
+    from contra.crm.dossier import REJECTION_REASONS, tag_rejection
+
+    if body.reason not in REJECTION_REASONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid reason '{body.reason}'. Must be one of: {sorted(REJECTION_REASONS)}",
+        )
+    if body.reason == "deployment_pause" and not body.revisit_date:
+        raise HTTPException(
+            status_code=422,
+            detail="revisit_date is required for reason=deployment_pause",
+        )
+
+    row = con.execute(
+        "SELECT investor_name FROM crm_leads WHERE CAST(lead_id AS VARCHAR) = ?",
+        [lead_id],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    investor_name = row[0]
+    ok = tag_rejection(con, investor_name, body.reason, body.note, body.revisit_date)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Rejection tagging failed")
+
+    # Read back the updated status
+    updated = con.execute(
+        "SELECT status FROM crm_leads WHERE CAST(lead_id AS VARCHAR) = ?",
+        [lead_id],
+    ).fetchone()
+    new_status = updated[0] if updated else "unknown"
+
+    return RejectionTagResponse(
+        investor_name=investor_name,
+        reason=body.reason,
+        new_status=new_status,
+        revisit_date=body.revisit_date,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Outreach personalization agent
 # ---------------------------------------------------------------------------
 

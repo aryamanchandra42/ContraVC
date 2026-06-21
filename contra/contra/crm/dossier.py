@@ -195,3 +195,90 @@ def set_analyst_notes(con, name: str, notes: str) -> bool:
         return cur.fetchall() is not None
     except Exception:
         return True
+
+
+# Valid rejection reason codes derived from outreach archive analysis (Jan–Jun 2026).
+REJECTION_REASONS = frozenset({
+    "fund_size",        # LP min fund size > $30M (structural; suppress until Fund II)
+    "geo_mandate",      # Explicit US/Europe-only mandate (hard exclude)
+    "deployment_pause", # LP paused new commitments; set revisit_date +4 months
+    "placement_agent",  # LP proposed placement-agent arrangement; escalate to GP
+    "other",            # Catch-all; see rejection_note
+})
+
+
+def tag_rejection(
+    con,
+    name: str,
+    reason: str,
+    note: str = "",
+    revisit_date: Optional[str] = None,
+) -> bool:
+    """
+    Record a structured rejection on both crm_leads and lp_dossiers.
+
+    reason        — one of REJECTION_REASONS
+    note          — LP's exact words or free-text context (stored verbatim)
+    revisit_date  — ISO date string 'YYYY-MM-DD'; required for deployment_pause,
+                    optional for other reasons
+
+    Side effects:
+      - Sets crm_leads.status = 'excluded' for geo_mandate / fund_size
+      - Sets crm_leads.status = 'paused'   for deployment_pause
+      - Appends a rejection event to the dossier outreach_history
+      - Does NOT raise; returns False and logs on any DB error
+    """
+    if reason not in REJECTION_REASONS:
+        logger.warning("tag_rejection: unknown reason '%s' for '%s'", reason, name)
+        reason = "other"
+
+    status_map = {
+        "fund_size":        "excluded",
+        "geo_mandate":      "excluded",
+        "deployment_pause": "paused",
+        "placement_agent":  "active",   # keep active; GP decision pending
+        "other":            "active",
+    }
+    new_status = status_map[reason]
+
+    try:
+        key = norm_key(name)
+
+        # Update crm_leads
+        con.execute(
+            """
+            UPDATE crm_leads
+            SET rejection_reason = ?,
+                rejection_note   = ?,
+                revisit_date     = ?,
+                status           = ?,
+                updated_at       = NOW()
+            WHERE name_key = ?
+            """,
+            [reason, note[:1000] if note else None, revisit_date, new_status, key],
+        )
+
+        # Update lp_dossiers
+        con.execute(
+            """
+            UPDATE lp_dossiers
+            SET rejection_reason = ?,
+                revisit_date     = ?,
+                updated_at       = NOW()
+            WHERE name_key = ?
+            """,
+            [reason, revisit_date, key],
+        )
+
+        # Append to outreach history for the full audit trail
+        append_outreach_event(con, name, {
+            "event":        "rejection_tagged",
+            "reason":       reason,
+            "note":         note[:400] if note else "",
+            "revisit_date": revisit_date,
+        })
+
+        return True
+    except Exception as exc:
+        logger.warning("tag_rejection failed for '%s': %s", name, exc)
+        return False

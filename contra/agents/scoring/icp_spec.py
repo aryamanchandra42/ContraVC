@@ -18,6 +18,8 @@ Scoring model:
 Version bump history:
   4.0 — initial build from IIP sheet only
   4.1 — full alignment with LP Scoping doc (C1-C6, E1-E12, S1-S10, LP type priority tiers)
+  4.2 — added E13 (fund size minimum > $35M) and E14 (geo mandate US/Europe only);
+         grounded in confirmed rejections from 949-email outreach archive (Jan-Jun 2026)
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent.parent
 CALIBRATION_YAML = ROOT / "prompts" / "icp_calibration.yaml"
 
-ICP_VERSION = "4.1"
+ICP_VERSION = "4.2"
 
 # ---------------------------------------------------------------------------
 # CORE FILTERS (C1–C4) — ALL must be TRUE to qualify
@@ -170,12 +172,38 @@ E12_PROP_TRADING_PHRASES = [
     "broker-dealer", "market maker", "algo trading",
 ]
 
+# E13: Fund Size Minimum Exceeds $35M
+# LP explicitly states they do not back funds below a threshold that disqualifies
+# our $30M Fund I. Confirmed pattern: Next Legacy Partners rejection ("fund is a
+# bit too small for us"). Threshold set at $35M to leave a small buffer.
+E13_FUND_SIZE_MIN_PHRASES = [
+    "minimum fund size", "minimum commitment size", "fund size minimum",
+    "fund size below", "funds below $50m", "funds below $75m", "funds below $100m",
+    "minimum fund", "fund must be at least", "won't consider funds below",
+    "does not invest in funds under", "only funds over", "only funds above",
+    "fund size too small", "not the right size", "size is too small",
+]
+
+# E14: Explicit US/Europe-Only Geography Mandate
+# LP mandate explicitly restricts to US and/or Europe, making Asia-focused
+# Contra VC structurally ineligible even if C4 (North America) passes.
+# Confirmed pattern: Moses Capital rejection ("invest only in the US and Europe").
+E14_US_EUROPE_ONLY_PHRASES = [
+    "us and europe only", "us/europe only", "us & europe only",
+    "invest only in the us and europe", "only us and europe",
+    "north america and europe only", "us and european markets only",
+    "restricted to us and europe", "us-europe mandate",
+    "no asia mandate", "no asia exposure", "not investing in asia",
+    "western markets only", "developed markets only",
+]
+
 # Combined hard exclusion set for fast scanning
 ALL_HARD_EXCLUSION_PHRASES: list[str] = (
     E1_PE_PHRASES + E2_SECONDARIES_PHRASES + E3_REAL_ESTATE_PHRASES
     + E4_WEB3_PHRASES + E5_HEALTHCARE_PHRASES + E6_LOCKED_GEO_PHRASES
     + E7_IMPACT_PHRASES + E8_NO_EM_PHRASES + E10_DIRECT_ONLY_PHRASES
-    + E12_PROP_TRADING_PHRASES
+    + E12_PROP_TRADING_PHRASES + E13_FUND_SIZE_MIN_PHRASES
+    + E14_US_EUROPE_ONLY_PHRASES
 )
 
 # Sanctioned countries (OFAC / MAS)

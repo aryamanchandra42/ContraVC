@@ -51,6 +51,7 @@ def hunt_and_persist_contacts(
     raw_emails, linkedin, twitter = _extract_from_text(combined_text)
     
     verified_emails: List[str] = []
+    unverified_emails: List[str] = []
     
     if raw_emails:
         # Dedupe before verifying to save credits
@@ -63,22 +64,28 @@ def hunt_and_persist_contacts(
             if status == "Deliverable":
                 verified_emails.append(email)
                 logger.info(f"Contact Hunter: Email {email} is Deliverable.")
+            elif status == "Unknown":
+                unverified_emails.append(email)
+                logger.info(f"Contact Hunter: Email {email} verification skipped/unknown.")
             else:
                 logger.info(f"Contact Hunter: Email {email} rejected (Status: {status}).")
                 
-    if not verified_emails and not linkedin and not twitter:
+    if not verified_emails and not unverified_emails and not linkedin and not twitter:
         logger.info(f"Contact Hunter: No valid contacts found for {lp_name}.")
         return {"emails": 0, "linkedin": 0, "twitter": 0}
         
     # Build channels dicts using confidence 0.85 for verified emails
     channels = build_channels(verified_emails, linkedin, twitter, "web_hunter", 0.85)
+    # Add unverified emails with lower confidence
+    channels.extend(build_channels(unverified_emails, [], [], "web_hunter", 0.60))
+    
     channels = _dedupe_channels(channels)
     
     _upsert_gate_contact(con, allocator_id, lp_name, channels, "web_hunter")
-    logger.info(f"Contact Hunter: Persisted {len(verified_emails)} emails, {len(linkedin)} LI, {len(twitter)} TW for {lp_name}")
+    logger.info(f"Contact Hunter: Persisted {len(verified_emails) + len(unverified_emails)} emails, {len(linkedin)} LI, {len(twitter)} TW for {lp_name}")
     
     return {
-        "emails": len(verified_emails),
+        "emails": len(verified_emails) + len(unverified_emails),
         "linkedin": len(linkedin),
         "twitter": len(twitter)
     }

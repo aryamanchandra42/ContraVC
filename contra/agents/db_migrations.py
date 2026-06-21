@@ -510,6 +510,61 @@ def migrate_crm_outreach(con) -> bool:
     return True
 
 
+def migrate_crm_rejection_tracking(con) -> bool:
+    """
+    Add rejection tracking to crm_leads and lp_dossiers.
+
+    crm_leads:
+      - rejection_reason VARCHAR — structured code from confirmed outreach rejections:
+          fund_size        LP's minimum fund size > $30M (e.g. Next Legacy Partners)
+          geo_mandate      Explicit US/Europe-only mandate (e.g. Moses Capital)
+          deployment_pause LP paused new commitments; set revisit_date and suppress
+          placement_agent  LP proposed placement-agent arrangement; escalate to GP
+          other            Any other reason; see rejection_note for details
+      - rejection_note  VARCHAR — free-text detail / LP's exact words
+      - revisit_date    DATE    — when to re-engage (used for deployment_pause)
+
+    lp_dossiers:
+      - rejection_reason VARCHAR — mirrors crm_leads for dossier-level tracking
+      - revisit_date    DATE
+
+    Safe to re-run: uses ALTER TABLE ... ADD COLUMN IF NOT EXISTS.
+    Returns True if any column was added.
+    """
+    ran = False
+
+    # crm_leads columns
+    leads_existing = {
+        r[0] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'crm_leads'"
+        ).fetchall()
+    }
+    for col, ddl in [
+        ("rejection_reason", "VARCHAR"),
+        ("rejection_note",   "VARCHAR"),
+        ("revisit_date",     "DATE"),
+    ]:
+        if col not in leads_existing:
+            con.execute(f"ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS {col} {ddl}")
+            ran = True
+
+    # lp_dossiers columns
+    dossier_existing = {
+        r[0] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'lp_dossiers'"
+        ).fetchall()
+    }
+    for col, ddl in [
+        ("rejection_reason", "VARCHAR"),
+        ("revisit_date",     "DATE"),
+    ]:
+        if col not in dossier_existing:
+            con.execute(f"ALTER TABLE lp_dossiers ADD COLUMN IF NOT EXISTS {col} {ddl}")
+            ran = True
+
+    return ran
+
+
 def migrate_allocator_contacts_v2(con) -> bool:
     """
     Add twitter_url and channels_json to allocator_contacts.

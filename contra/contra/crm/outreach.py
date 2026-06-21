@@ -4,14 +4,17 @@ Outreach personalization agent — turns gate intelligence into first-touch emai
 For a CRM lead, gathers everything we know (dossier: verified LP commitments,
 appetite, archetype, warm paths, sources; lead row: contacts, type, location)
 and drafts a personalized outreach email with a strong model (default
-claude-sonnet-4-5, override via OUTREACH_LLM_MODEL).
+claude-opus-4-5, override via OUTREACH_LLM_MODEL).
 
-Doctrine baked into the prompt:
-  - The hook must come from THEIR allocation behavior (a named fund they backed,
-    their emerging-manager program, their stated thesis) — never generic flattery.
-  - Never fabricate facts. If we have no verified commitment, lead with the
-    thesis overlap instead.
-  - 120–160 words, one specific CTA, no attachments mentioned, no jargon walls.
+Doctrine baked into the prompt — grounded in 949 real emails (Jan–Jun 2026):
+  - S1 hook MUST contain: org identity signal + named behavioral evidence
+    + one-sentence bridge. Category descriptions ("activity across X, Y")
+    are explicitly forbidden — only named fund/program/investment/thesis qualify.
+  - No self-introduction in body ("I'm [Name], GP at…"). Signature covers it.
+  - 4–5 sentences total. One metric or one portfolio signal, never both.
+  - Subject line must contain org name or specific reference — never generic.
+  - Follow-up tone/angle adapts to LP archetype (FoF vs FO vs asset manager).
+  - Never fabricate facts. If no named signal is available, return insufficient_signal.
 
 Drafts persist in crm_outreach_drafts (draft → approved → sent) and every
 generation/send is appended to the LP's dossier outreach history.
@@ -41,17 +44,65 @@ _SYSTEM = f"""You write first-touch LP outreach emails for a VC fund GP.
 
 FUND: {_FUND_CONTEXT}
 
-NON-NEGOTIABLE RULES FOR SUCCESSFUL COLD OUTREACH:
-1. NEVER fabricate facts about the recipient. Use ONLY the intelligence provided.
-2. PATTERN INTERRUPT HOOK: The opening sentence MUST reference something highly specific about THEM — a verified fund commitment, their emerging-manager program, or their geography/sector thesis. This proves we did our homework. DO NOT use generic pleasantries ("I hope this finds you well").
-3. EXTREME BREVITY: The email MUST be short (under 100-120 words). Use short, punchy sentences. Optimize for reading on a mobile device.
-4. VALUE PROPOSITION: Focus on why this aligns with their thesis or past behavior, not just bragging about the fund.
-5. FRICTIONLESS CTA: End with a low-friction question, not a demand for a 20-minute meeting block. Examples: "Open to a brief chat?", "Does this align with your current thesis?", or "Worth exploring?".
-6. ZERO JARGON: No buzzword soup. Speak like a normal, high-level professional.
-7. Subject line: under 6 words, lowercase (or sentence case), specific, no clickbait. It should look like an internal email.
-8. If a warm path/intro source is provided, reference it naturally in sentence one.
-9. Mention at most ONE fund metric. Do not list the whole deck.
-10. Tone parameter: "warm" (default), "formal" (institutional LPs), or "concise" (busy execs).
+═══════════════════════════════════════════════════════
+HOOK FORMULA — sentence 1 requires ALL THREE components:
+  1. Org identity signal: name the org + what makes it specific
+     (e.g. "the Woh Hup family office", "a dedicated built-environment CVC")
+  2. Named behavioral evidence: a SPECIFIC fund they backed, program they run,
+     portfolio company intersection, or verbatim thesis quote from the intel.
+     ── FORBIDDEN: sector category lists such as "activity across healthcare,
+        technology and private fund exposure" are NOT behavioral evidence.
+     ── If no named signal exists in the intel, set body = "insufficient_signal"
+        and do not fabricate a hook.
+  3. One-sentence bridge: how that specific thing maps to what we're building.
+
+EXAMPLE of a strong hook (do not copy — build equivalent specificity):
+  "Industry Ventures has long backed shifts in venture structure; Contra VC is
+   MyAsiaVC's move from syndicate access into a dedicated fund for global Asian
+   AI founders."
+
+FORBIDDEN opening phrases (reject if any appear in S1):
+  "Over the last decade", "I hope", "I wanted to reach out", "My name is",
+  "I'm writing to", "I came across", "Quick intro", "Just reaching out".
+═══════════════════════════════════════════════════════
+
+BODY STRUCTURE (4–5 sentences, no more):
+  S1: Hook — 3 components above (no filler, no self-intro)
+  S2: Bridge — why their signal maps to this fund specifically
+  S3: ONE metric OR one portfolio signal (never both; bold the number)
+  S4: CTA — one low-friction question
+  P.S. (optional): only if a warm intro source is known in the intel
+
+NO SELF-INTRODUCTION IN BODY. Never write "I'm [Name], General Partner at…"
+or "My name is…". Your name and title appear in the signature — the body is
+entirely about the recipient.
+
+SUBJECT LINE FORMULA (pick the highest-signal option available):
+  A. "[Org short name] / Contra VC"      — e.g. "Aurum / Contra VC"
+  B. "[Fund they backed] → Contra VC"   — e.g. "Jungle Ventures → Contra VC"
+  C. "via [Mutual name] / Contra VC"    — only if warm_paths > 0
+  NEVER use: "Intro to Contra VC Fund I", questions in subject, exclamation
+  marks, "quick question", or generic greetings.
+
+PERSONALIZATION HIERARCHY (use highest signal available in the intel):
+  1. Named fund commitment + vintage year  ← strongest
+  2. Named emerging-manager program they run
+  3. Named portfolio company intersection with our fund
+  4. Verbatim thesis/mandate quote from analyst notes
+  5. Geographic + sector thesis intersection  ← weakest; only if nothing above
+
+ARCHETYPE-AWARE FOLLOW-UP ANGLE (use when drafting follow-up touch):
+  FoF / fund platform    → lead with sourcing access and deal flow volume
+  Family office / HNWI   → lead with co-invest / SPV priority access
+  Asset manager          → lead with thesis alignment and portfolio proof points
+  (LP archetype will be stated in the prompt)
+
+ADDITIONAL NON-NEGOTIABLES:
+- NEVER fabricate facts. Use ONLY the intelligence provided.
+- Under 100 words in the body. Short punchy sentences. Mobile-readable.
+- One fund metric maximum. Do not list the whole deck.
+- Tone: "warm" (default), "formal" (institutional), "concise" (busy exec).
+- If a warm path is provided, reference it naturally in sentence one.
 
 Return JSON matching the schema you are given.
 """
@@ -68,7 +119,7 @@ class OutreachDraft(BaseModel):
 
 
 def _outreach_model() -> str:
-    return os.environ.get("OUTREACH_LLM_MODEL", "").strip() or "claude-sonnet-4-5"
+    return os.environ.get("OUTREACH_LLM_MODEL", "").strip() or "claude-opus-4-5"
 
 
 def _lead_row(con, lead_id: str) -> Optional[Dict[str, Any]]:
@@ -102,15 +153,33 @@ def _build_prompt(
     tone: str,
     sender_name: str,
     extra_instructions: str,
+    prior_subjects: Optional[List[str]] = None,
 ) -> str:
     contacts = lead.get("contacts_json") or {}
     first_contact = next(iter(contacts.values()), {}) if isinstance(contacts, dict) else {}
     appetite = (dossier or {}).get("appetite") or lead.get("appetite_json") or {}
 
+    # Format appetite as labeled signals rather than a raw JSON dump
+    appetite_signal_keys = (
+        "check_size", "stage_preference", "sector_focus",
+        "geography", "emerging_manager_program",
+    )
+    appetite_lines = [
+        f"  - {k}: {appetite[k]}"
+        for k in appetite_signal_keys
+        if appetite.get(k) and isinstance(appetite[k], str)
+    ]
+    appetite_block = "\n".join(appetite_lines) if appetite_lines else "  (no appetite signals on record)"
+
+    # Contact name + title for formality calibration
+    contact_name = first_contact.get("name") or "(unknown — address the organization)"
+    contact_title = first_contact.get("title") or ""
+    contact_label = f"{contact_name}" + (f" ({contact_title})" if contact_title else "")
+
     parts = [
         f"RECIPIENT: {lead['investor_name']}",
-        f"Contact person: {first_contact.get('name') or '(unknown — address the organization)'}",
-        f"Investor type: {lead.get('investor_type') or 'unknown'}",
+        f"Contact person: {contact_label}",
+        f"LP archetype: {(dossier or {}).get('archetype') or lead.get('investor_type') or 'unknown'}",
         f"Location: {lead.get('investor_location') or 'unknown'}",
         f"Tone: {tone}",
         f"Sender (GP): {sender_name or 'the GP'}",
@@ -118,14 +187,27 @@ def _build_prompt(
         "=== INTELLIGENCE (use ONLY this — do not invent) ===",
         f"Gate summary: {lead.get('gate_summary') or (dossier or {}).get('research_notes', '')[:400]}",
         f"Verified LP commitments: {json.dumps((dossier or {}).get('lp_commitments') or [])}",
-        f"Appetite: {json.dumps({k: v for k, v in appetite.items() if isinstance(v, str)})[:600]}",
+        f"Appetite signals:\n{appetite_block}",
         f"Warm paths on record: {lead.get('warm_path_count') or 0}",
         f"Details: {(lead.get('investor_details') or '')[:600]}",
     ]
+
     if (dossier or {}).get("analyst_notes"):
         parts.append(f"Analyst notes: {dossier['analyst_notes'][:400]}")
+
+    latest_event = (dossier or {}).get("latest_portfolio_event") or ""
+    if latest_event:
+        parts.append(f"Latest portfolio milestone (use if drafting follow-up): {latest_event[:200]}")
+
+    if prior_subjects:
+        parts.append(
+            f"Prior outreach subjects already sent to this LP "
+            f"(do NOT reuse the same hook or subject): {prior_subjects}"
+        )
+
     if extra_instructions:
         parts.append(f"\nADDITIONAL SENDER INSTRUCTIONS: {extra_instructions[:400]}")
+
     parts.append(
         "\nWrite the outreach email now. Return subject, body, personalization_points."
     )
@@ -148,6 +230,18 @@ def generate_outreach_draft(
 
     dossier = get_dossier(con, lead["investor_name"])
 
+    # Fetch previous subjects to prevent hook repetition on re-generate
+    prior_subjects: List[str] = []
+    try:
+        rows = con.execute(
+            "SELECT subject FROM crm_outreach_drafts "
+            "WHERE CAST(lead_id AS VARCHAR) = ? ORDER BY created_at DESC LIMIT 5",
+            [lead_id],
+        ).fetchall()
+        prior_subjects = [r[0] for r in rows if r[0]]
+    except Exception:
+        pass
+
     model = _outreach_model()
     try:
         llm = get_llm_client(provider="anthropic", model=model)
@@ -157,7 +251,10 @@ def generate_outreach_draft(
         model = getattr(llm, "model", "unknown")
 
     draft = llm.structured(
-        prompt=_build_prompt(lead, dossier, tone, sender_name, extra_instructions),
+        prompt=_build_prompt(
+            lead, dossier, tone, sender_name, extra_instructions,
+            prior_subjects=prior_subjects or None,
+        ),
         response_model=OutreachDraft,
         system=_SYSTEM,
         max_tokens=1500,
