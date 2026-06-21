@@ -144,7 +144,7 @@ def get_dossier(con, name: str) -> Optional[Dict[str, Any]]:
     return {
         "name_key": row[0],
         "investor_name": row[1],
-        "allocator_id": row[2],
+        "allocator_id": str(row[2]) if row[2] else None,
         "latest_verdict": row[3],
         "latest_session_id": row[4],
         "verdict_model": row[5],
