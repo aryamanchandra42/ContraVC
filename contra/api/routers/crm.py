@@ -179,28 +179,31 @@ def list_prospects(
     sql += " ORDER BY prospect_score DESC NULLS LAST LIMIT ?"
     params.append(top)
 
-    rows = con.execute(sql, params).fetchall()
+    cursor = con.execute(sql, params)
+    rows = cursor.fetchall()
+    cols = [d[0].lower() for d in cursor.description]
     out: List[CrmProspect] = []
     seen: set[str] = set()
     for r in rows:
-        name = r[1]
+        data = dict(zip(cols, r))
+        name = data.get("investor_name", "")
         if name in seen:
             continue
         if _make_name_key(name) in dismissed_keys:
             continue
         seen.add(name)
         out.append(CrmProspect(
-            allocator_id=str(r[0]) if r[0] else None,
+            allocator_id=str(data["allocator_id"]) if data.get("allocator_id") else None,
             investor_name=name,
-            investor_type=r[2],
-            investor_location=r[3],
-            icp_tier=r[4],
-            fit_score=_safe_float(r[5]),
-            contra_rank=int(r[6]) if r[6] is not None else None,
-            warm_path_count=int(r[7]) if r[7] is not None else None,
-            syndicate_score=_safe_float(r[8]),
-            suggested_source=r[9] or "icp",
-            prospect_score=_safe_float(r[10]),
+            investor_type=data.get("investor_type"),
+            investor_location=data.get("investor_location"),
+            icp_tier=data.get("icp_tier"),
+            fit_score=_safe_float(data.get("fit_score")),
+            contra_rank=int(data["contra_rank"]) if data.get("contra_rank") is not None else None,
+            warm_path_count=int(data["warm_path_count"]) if data.get("warm_path_count") is not None else None,
+            syndicate_score=_safe_float(data.get("syndicate_score")),
+            suggested_source=data.get("suggested_source") or "icp",
+            prospect_score=_safe_float(data.get("prospect_score")),
         ))
     return out
 
@@ -262,25 +265,28 @@ def list_icp_queue(
     """
     params.append(top)
 
-    rows = con.execute(sql, params).fetchall()
+    cursor = con.execute(sql, params)
+    rows = cursor.fetchall()
+    cols = [d[0].lower() for d in cursor.description]
     out: List[CrmIcpQueueItem] = []
     for r in rows:
-        fit = _safe_float(r[5])
+        data = dict(zip(cols, r))
+        fit = _safe_float(data.get("fit_score"))
         out.append(CrmIcpQueueItem(
-            allocator_id=str(r[0]) if r[0] else None,
-            investor_name=r[1],
-            allocator_type=r[2],
-            investor_location=r[3],
-            icp_tier=r[4],
+            allocator_id=str(data["allocator_id"]) if data.get("allocator_id") else None,
+            investor_name=data.get("investor_name", ""),
+            allocator_type=data.get("allocator_type"),
+            investor_location=data.get("investor_location"),
+            icp_tier=data.get("icp_tier"),
             fit_score=fit,
-            client_decision=r[6],
-            client_status=r[7],
-            core_pass=bool(r[8]) if r[8] is not None else None,
-            warm_path_count=int(r[9]) if r[9] is not None else None,
-            readiness=r[10] or "PENDING",
-            gate_verdict=r[11] or None,
-            gate_session_id=r[12] or None,
-            gate_reviewed_at=str(r[13]) if r[13] else None,
+            client_decision=data.get("client_decision"),
+            client_status=data.get("client_status"),
+            core_pass=bool(data["core_pass"]) if data.get("core_pass") is not None else None,
+            warm_path_count=int(data["warm_path_count"]) if data.get("warm_path_count") is not None else None,
+            readiness=data.get("readiness") or "PENDING",
+            gate_verdict=data.get("gate_verdict") or None,
+            gate_session_id=data.get("gate_session_id") or None,
+            gate_reviewed_at=str(data["gate_reviewed_at"]) if data.get("gate_reviewed_at") else None,
         ))
     return out
 
@@ -521,10 +527,10 @@ def outreach_queue(top: int = Query(10, ge=1, le=50), con=Depends(get_db)) -> Li
     Ranked "contact these next" queue: active YES leads first, ordered by a
     blend of computed score, verified LP commitments, and warm paths.
     """
-    rows = con.execute(
+    cursor = con.execute(
         """
         SELECT
-            CAST(l.lead_id AS VARCHAR), l.investor_name, l.investor_type,
+            CAST(l.lead_id AS VARCHAR) AS lead_id, l.investor_name, l.investor_type,
             l.investor_location, l.gate_verdict, l.gate_confidence,
             l.computed_score, l.warm_path_count, l.pipeline_stage,
             d.lp_commitments_json,
@@ -534,44 +540,51 @@ def outreach_queue(top: int = Query(10, ge=1, le=50), con=Depends(get_db)) -> Li
         LEFT JOIN lp_dossiers d ON d.name_key = l.name_key
         WHERE l.status = 'active'
         """
-    ).fetchall()
+    )
+    rows = cursor.fetchall()
+    cols = [d[0].lower() for d in cursor.description]
 
     scored: List[Dict[str, Any]] = []
     for r in rows:
-        commitments = r[9]
+        data = dict(zip(cols, r))
+        commitments = data.get("lp_commitments_json")
         if isinstance(commitments, str):
             try:
                 commitments = json.loads(commitments)
             except Exception:
                 commitments = []
         commitments = commitments or []
-        base = float(r[6] or 0)
-        verdict_bonus = 30 if r[4] == "yes" else (10 if r[4] == "review" else 0)
-        confidence_bonus = 10 if r[5] == "high" else 0
+        base = float(data.get("computed_score") or 0)
+        verdict = data.get("gate_verdict")
+        confidence = data.get("gate_confidence")
+        warm_paths = int(data.get("warm_path_count") or 0)
+        
+        verdict_bonus = 30 if verdict == "yes" else (10 if verdict == "review" else 0)
+        confidence_bonus = 10 if confidence == "high" else 0
         commit_bonus = min(len(commitments), 3) * 15
-        warm_bonus = min(int(r[7] or 0), 3) * 8
+        warm_bonus = min(warm_paths, 3) * 8
         priority = base + verdict_bonus + confidence_bonus + commit_bonus + warm_bonus
 
         why = []
         if commitments:
             why.append(f"{len(commitments)} verified LP commitment(s)")
-        if r[4] == "yes":
-            why.append(f"gate YES ({r[5]} confidence)")
-        if int(r[7] or 0) > 0:
-            why.append(f"{r[7]} warm path(s)")
+        if verdict == "yes":
+            why.append(f"gate YES ({confidence} confidence)")
+        if warm_paths > 0:
+            why.append(f"{warm_paths} warm path(s)")
         if not why:
             why.append("highest available score")
 
         scored.append({
-            "lead_id": r[0],
-            "investor_name": r[1],
-            "investor_type": r[2],
-            "investor_location": r[3],
-            "gate_verdict": r[4],
+            "lead_id": data.get("lead_id"),
+            "investor_name": data.get("investor_name"),
+            "investor_type": data.get("investor_type"),
+            "investor_location": data.get("investor_location"),
+            "gate_verdict": verdict,
             "priority_score": round(priority, 1),
             "why": "; ".join(why),
-            "has_draft": int(r[10] or 0) > 0,
-            "pipeline_stage": r[8],
+            "has_draft": int(data.get("draft_count") or 0) > 0,
+            "pipeline_stage": data.get("pipeline_stage"),
         })
 
     scored.sort(key=lambda x: -x["priority_score"])

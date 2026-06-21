@@ -129,7 +129,7 @@ def upsert_dossier_from_gate(
 def get_dossier(con, name: str) -> Optional[Dict[str, Any]]:
     """Fetch the dossier for an LP by name (normalized key match)."""
     key = norm_key(name)
-    row = con.execute(
+    cursor = con.execute(
         """
         SELECT name_key, investor_name, allocator_id, latest_verdict, latest_session_id,
                verdict_model, lp_commitments_json, appetite_json, sources_json,
@@ -138,25 +138,30 @@ def get_dossier(con, name: str) -> Optional[Dict[str, Any]]:
         FROM lp_dossiers WHERE name_key = ?
         """,
         [key],
-    ).fetchone()
+    )
+    row = cursor.fetchone()
     if not row:
         return None
+        
+    cols = [d[0].lower() for d in cursor.description]
+    data = dict(zip(cols, row))
+    
     return {
-        "name_key": row[0],
-        "investor_name": row[1],
-        "allocator_id": str(row[2]) if row[2] else None,
-        "latest_verdict": row[3],
-        "latest_session_id": row[4],
-        "verdict_model": row[5],
-        "lp_commitments": _load_json(row[6], []),
-        "appetite": _load_json(row[7], {}),
-        "sources": _load_json(row[8], []),
-        "research_notes": row[9] or "",
-        "verdict_history": _load_json(row[10], []),
-        "outreach_history": _load_json(row[11], []),
-        "analyst_notes": row[12] or "",
-        "created_at": str(row[13]) if row[13] else None,
-        "updated_at": str(row[14]) if row[14] else None,
+        "name_key": data.get("name_key"),
+        "investor_name": data.get("investor_name"),
+        "allocator_id": str(data["allocator_id"]) if data.get("allocator_id") else None,
+        "latest_verdict": data.get("latest_verdict"),
+        "latest_session_id": data.get("latest_session_id"),
+        "verdict_model": data.get("verdict_model"),
+        "lp_commitments": _load_json(data.get("lp_commitments_json"), []),
+        "appetite": _load_json(data.get("appetite_json"), {}),
+        "sources": _load_json(data.get("sources_json"), []),
+        "research_notes": data.get("research_notes", "") or "",
+        "verdict_history": _load_json(data.get("verdict_history_json"), []),
+        "outreach_history": _load_json(data.get("outreach_history_json"), []),
+        "analyst_notes": data.get("analyst_notes", "") or "",
+        "created_at": str(data["created_at"]) if data.get("created_at") else None,
+        "updated_at": str(data["updated_at"]) if data.get("updated_at") else None,
     }
 
 

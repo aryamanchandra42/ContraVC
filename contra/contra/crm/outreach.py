@@ -72,7 +72,7 @@ def _outreach_model() -> str:
 
 
 def _lead_row(con, lead_id: str) -> Optional[Dict[str, Any]]:
-    row = con.execute(
+    cursor = con.execute(
         """
         SELECT lead_id, investor_name, investor_type, investor_location,
                investor_details, contacts_json, gate_summary, appetite_json,
@@ -80,12 +80,11 @@ def _lead_row(con, lead_id: str) -> Optional[Dict[str, Any]]:
         FROM crm_leads WHERE CAST(lead_id AS VARCHAR) = ?
         """,
         [lead_id],
-    ).fetchone()
+    )
+    row = cursor.fetchone()
     if not row:
         return None
-    cols = ["lead_id", "investor_name", "investor_type", "investor_location",
-            "investor_details", "contacts_json", "gate_summary", "appetite_json",
-            "warm_path_count", "pipeline_stage"]
+    cols = [d[0].lower() for d in cursor.description]
     data = dict(zip(cols, row))
     for jf in ("contacts_json", "appetite_json"):
         if isinstance(data.get(jf), str):
@@ -93,7 +92,7 @@ def _lead_row(con, lead_id: str) -> Optional[Dict[str, Any]]:
                 data[jf] = json.loads(data[jf])
             except Exception:
                 data[jf] = None
-    data["lead_id"] = str(data["lead_id"])
+    data["lead_id"] = str(data.get("lead_id", ""))
     return data
 
 
@@ -198,30 +197,41 @@ def generate_outreach_draft(
 
 
 def list_outreach_drafts(con, lead_id: str) -> List[Dict[str, Any]]:
-    rows = con.execute(
+    cursor = con.execute(
         """
-        SELECT CAST(draft_id AS VARCHAR), CAST(lead_id AS VARCHAR), investor_name,
-               subject, body, tone, model, personalization_json, status,
-               CAST(created_at AS VARCHAR)
+        SELECT CAST(draft_id AS VARCHAR) AS draft_id, 
+               CAST(lead_id AS VARCHAR) AS lead_id, 
+               investor_name, subject, body, tone, model, 
+               personalization_json, status,
+               CAST(created_at AS VARCHAR) AS created_at
         FROM crm_outreach_drafts
         WHERE CAST(lead_id AS VARCHAR) = ?
         ORDER BY created_at DESC
         """,
         [lead_id],
-    ).fetchall()
+    )
+    rows = cursor.fetchall()
+    cols = [d[0].lower() for d in cursor.description]
     out = []
     for r in rows:
-        points = r[7]
+        data = dict(zip(cols, r))
+        points = data.get("personalization_json")
         if isinstance(points, str):
             try:
                 points = json.loads(points)
             except Exception:
                 points = []
         out.append({
-            "draft_id": r[0], "lead_id": r[1], "investor_name": r[2],
-            "subject": r[3], "body": r[4], "tone": r[5], "model": r[6],
-            "personalization_points": points or [], "status": r[8],
-            "created_at": r[9],
+            "draft_id": data.get("draft_id"), 
+            "lead_id": data.get("lead_id"), 
+            "investor_name": data.get("investor_name"),
+            "subject": data.get("subject"), 
+            "body": data.get("body"), 
+            "tone": data.get("tone"), 
+            "model": data.get("model"),
+            "personalization_points": points or [], 
+            "status": data.get("status"),
+            "created_at": data.get("created_at"),
         })
     return out
 
