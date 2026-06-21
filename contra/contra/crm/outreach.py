@@ -14,7 +14,8 @@ Doctrine baked into the prompt — grounded in 949 real emails (Jan–Jun 2026):
   - 4–5 sentences total. One metric or one portfolio signal, never both.
   - Subject line must contain org name or specific reference — never generic.
   - Follow-up tone/angle adapts to LP archetype (FoF vs FO vs asset manager).
-  - Never fabricate facts. If no named signal is available, return insufficient_signal.
+  - Never fabricate facts. If no named signal is available, fall back to LP type
+    + geography + sector combination — never block generation.
 
 Drafts persist in crm_outreach_drafts (draft → approved → sent) and every
 generation/send is appended to the LP's dossier outreach history.
@@ -47,21 +48,31 @@ FUND: {_FUND_CONTEXT}
 ═══════════════════════════════════════════════════════
 HOOK FORMULA — sentence 1 requires ALL THREE components:
   1. Org identity signal: name the org + what makes it specific
-     (e.g. "the Woh Hup family office", "a dedicated built-environment CVC")
-  2. Named behavioral evidence: a SPECIFIC fund they backed, program they run,
-     portfolio company intersection, or verbatim thesis quote from the intel.
-     ── FORBIDDEN: sector category lists such as "activity across healthcare,
-        technology and private fund exposure" are NOT behavioral evidence.
-     ── If no named signal exists in the intel, set body = "insufficient_signal"
-        and do not fabricate a hook.
+     (e.g. "the Woh Hup family office", "a dedicated built-environment CVC",
+      "a Singapore-based FoF backing emerging managers across Asia")
+  2. Distinguishing evidence — use the HIGHEST tier available from the intel:
+     TIER A (best): Named fund they backed, program they run, or portfolio company
+     TIER B:        Verbatim thesis quote or mandate language from analyst notes
+     TIER C:        LP type + geography + sector combination that is specific to them
+                    (e.g. "a Hong Kong multi-family office with a stated AI thesis",
+                     not generic: "activity across technology and private funds")
+     ── Only use Tier C when Tier A and B are absent from the intel.
+     ── NEVER invent facts. Use ONLY what is in the intelligence section.
+     ── NEVER use vague category lists ("activity across healthcare, technology…")
+        as the distinguishing signal — they apply to any LP and prove nothing.
   3. One-sentence bridge: how that specific thing maps to what we're building.
 
-EXAMPLE of a strong hook (do not copy — build equivalent specificity):
+EXAMPLE of a Tier A hook (strongest):
   "Industry Ventures has long backed shifts in venture structure; Contra VC is
    MyAsiaVC's move from syndicate access into a dedicated fund for global Asian
    AI founders."
 
-FORBIDDEN opening phrases (reject if any appear in S1):
+EXAMPLE of a Tier C hook (acceptable when no named fund/program available):
+  "A Singapore-based family office with a cross-border AI mandate is exactly the
+   LP profile we had in mind when structuring Contra VC around technical Asian
+   founders building global B2B companies."
+
+FORBIDDEN opening phrases (any of these appearing in S1 = rewrite):
   "Over the last decade", "I hope", "I wanted to reach out", "My name is",
   "I'm writing to", "I came across", "Quick intro", "Just reaching out".
 ═══════════════════════════════════════════════════════
@@ -85,11 +96,13 @@ SUBJECT LINE FORMULA (pick the highest-signal option available):
   marks, "quick question", or generic greetings.
 
 PERSONALIZATION HIERARCHY (use highest signal available in the intel):
-  1. Named fund commitment + vintage year  ← strongest
+  1. Named fund commitment + vintage year  ← strongest — always use if present
   2. Named emerging-manager program they run
   3. Named portfolio company intersection with our fund
   4. Verbatim thesis/mandate quote from analyst notes
-  5. Geographic + sector thesis intersection  ← weakest; only if nothing above
+  5. LP type + geography + specific sector combination  ← use when 1–4 absent
+  Always produce a draft using the highest available tier. Never block on missing
+  data — a Tier 5 hook is better than no email.
 
 ARCHETYPE-AWARE FOLLOW-UP ANGLE (use when drafting follow-up touch):
   FoF / fund platform    → lead with sourcing access and deal flow volume
