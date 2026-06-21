@@ -139,3 +139,26 @@ def contacts(name: str, con=Depends(get_db)) -> Dict[str, Any]:
         result["crm"] = []
 
     return result
+
+
+@router.post("/contacts/{name}/hunt", response_model=Dict[str, Any])
+def hunt_contacts(name: str, con=Depends(get_db)) -> Dict[str, Any]:
+    """Manually trigger the Contact Hunter for a specific LP."""
+    from contra.intelligence.contact_resolver import resolve_contacts
+    
+    # We need the allocator_id to persist contacts.
+    profile = resolve_contacts(con, name)
+    if not profile.allocator_id:
+        return {"error": "Allocator ID not found for this name. Run them through the Gate first."}
+        
+    from agents.research.contact_hunter import hunt_and_persist_contacts
+    stats = hunt_and_persist_contacts(con, lp_name=name, allocator_id=profile.allocator_id)
+    
+    # Return updated contacts
+    from contra.intelligence.channel_recommend import enrich_profile_with_warm_paths
+    updated_profile = resolve_contacts(con, name)
+    updated_profile = enrich_profile_with_warm_paths(con, updated_profile)
+    return {
+        "stats": stats,
+        "profile": updated_profile.to_api_dict()
+    }

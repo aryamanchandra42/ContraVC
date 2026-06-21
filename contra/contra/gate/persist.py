@@ -211,6 +211,13 @@ def persist_gate_findings(
             )
             if any(contact_stats.values()):
                 logger.info("Gate contact extract for %s: %s", name, contact_stats)
+                
+            # If no contacts were found natively from the gate research context, run the dedicated contact hunter
+            if not contact_stats.get("gate_emails"):
+                from agents.research.contact_hunter import hunt_and_persist_contacts
+                hunter_stats = hunt_and_persist_contacts(con, lp_name=name, allocator_id=allocator_id)
+                logger.info(f"Gate contact hunter fallback for {name}: {hunter_stats}")
+
         except Exception as ce:
             logger.debug("Gate contact extract skipped for %s: %s", name, ce)
 
