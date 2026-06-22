@@ -6,16 +6,18 @@ appetite, archetype, warm paths, sources; lead row: contacts, type, location)
 and drafts a personalized outreach email with a strong model (default
 claude-opus-4-5, override via OUTREACH_LLM_MODEL).
 
-Doctrine baked into the prompt — grounded in 949 real emails (Jan–Jun 2026):
-  - S1 hook MUST contain: org identity signal + named behavioral evidence
-    + one-sentence bridge. Category descriptions ("activity across X, Y")
-    are explicitly forbidden — only named fund/program/investment/thesis qualify.
-  - No self-introduction in body ("I'm [Name], GP at…"). Signature covers it.
-  - 4–5 sentences total. One metric or one portfolio signal, never both.
-  - Subject line must contain org name or specific reference — never generic.
-  - Follow-up tone/angle adapts to LP archetype (FoF vs FO vs asset manager).
-  - Never fabricate facts. If no named signal is available, fall back to LP type
-    + geography + sector combination — never block generation.
+Email structure:
+  - Subject: "From [Org short name] to Contra - [specific bridge phrase]"
+  - Personalized opening paragraph (3 sentences):
+      S1: [Org]'s [thesis/focus] is a thesis we share + why reaching out.
+      S2: Given your [specific evidence], I'd value your perspective.
+      S3: (static) Factsheet link + call CTA.
+  - Static pitch block (verbatim, 5 paragraphs): data point → fund thesis →
+    GP track record → founder archetype → investment mechanics.
+  - Static sign-off.
+
+Only S1, S2, and the subject bridge phrase are personalized per recipient.
+Everything else is copied verbatim from _STATIC_PITCH.
 
 Drafts persist in crm_outreach_drafts (draft → approved → sent) and every
 generation/send is appended to the LP's dossier outreach history.
@@ -36,86 +38,72 @@ from contra.crm.dossier import append_outreach_event, get_dossier
 logger = logging.getLogger(__name__)
 
 _FUND_CONTEXT = (
-    "MyAsiaVC / Contra VC — AI-native Fund I, $30M target, pre-seed to Series A, "
-    "investing in AI/robotics across Southeast Asia, North America, and the Middle East. "
-    "Emerging manager (Fund I)."
+    "Contra VC — Fund I, $30M target, backing Global Asian founders building "
+    "B2B AI companies. Pre-seed and seed, $500-750K tickets, ~30 companies. "
+    "Institutional form of MyAsiaVC, which deployed $70M+ across 300+ companies "
+    "alongside 6,000+ LPs over the past decade."
 )
+
+_STATIC_PITCH = """\
+50% of new US tech founders are Asian. That share is rising every YC batch. Contra VC was built around that data point.
+
+We're raising Fund I ($30M) to back Global Asian founders building B2B AI companies for the world. The contrarian insight: first-generation operators from Google, Meta, and OpenAI are founding the next generation of enterprise AI companies, and no institutional fund was purpose-built for them. That's the gap Contra VC was designed to fill.
+
+My co-GP Sajid and I aren't new to this. Over the past decade, through MyAsiaVC, we've deployed $70M+ across 300+ companies alongside 6,000+ LPs. We've built one of the largest and most active Global Asian investor communities in the world. Contra VC is the institutional form of that edge, the fund infrastructure that lets us go deeper, move faster, and back founders at the moment it actually matters.
+
+The founders we back are technical-first, often underestimated, and building in spaces like AI infrastructure, vertical automation, and enterprise software. They don't fit the archetype most institutional funds optimise for, which is precisely where we think the alpha is.
+
+We invest $500-750K at pre-seed and seed, targeting ~30 companies with concentrated follow-on in our highest-conviction positions."""
 
 _SYSTEM = f"""You write first-touch LP outreach emails for a VC fund GP.
 
 FUND: {_FUND_CONTEXT}
 
 ═══════════════════════════════════════════════════════
-HOOK FORMULA — sentence 1 requires ALL THREE components:
-  1. Org identity signal: name the org + what makes it specific
-     (e.g. "the Woh Hup family office", "a dedicated built-environment CVC",
-      "a Singapore-based FoF backing emerging managers across Asia")
-  2. Distinguishing evidence — use the HIGHEST tier available from the intel:
-     TIER A (best): Named fund they backed, program they run, or portfolio company
-     TIER B:        Verbatim thesis quote or mandate language from analyst notes
-     TIER C:        LP type + geography + sector combination that is specific to them
-                    (e.g. "a Hong Kong multi-family office with a stated AI thesis",
-                     not generic: "activity across technology and private funds")
-     ── Only use Tier C when Tier A and B are absent from the intel.
-     ── NEVER invent facts. Use ONLY what is in the intelligence section.
-     ── NEVER use vague category lists ("activity across healthcare, technology…")
-        as the distinguishing signal — they apply to any LP and prove nothing.
-  3. One-sentence bridge: how that specific thing maps to what we're building.
+EMAIL STRUCTURE — follow this template exactly, filling in only the PERSONALIZED sections:
 
-EXAMPLE of a Tier A hook (strongest):
-  "Industry Ventures has long backed shifts in venture structure; Contra VC is
-   MyAsiaVC's move from syndicate access into a dedicated fund for global Asian
-   AI founders."
+  Subject: From [Org short name] to Contra - [short specific bridge phrase]
+    - The bridge phrase captures what specifically connects their thesis/org to Contra VC.
+    - EXAMPLE: "From Geek to Contra - backing immigrant founders in AI"
+    - EXAMPLE: "From Industry Ventures to Contra - the fund-of-funds angle"
+    - NEVER use: "Intro to Contra VC", questions, exclamation marks, generic greetings.
 
-EXAMPLE of a Tier C hook (acceptable when no named fund/program available):
-  "A Singapore-based family office with a cross-border AI mandate is exactly the
-   LP profile we had in mind when structuring Contra VC around technical Asian
-   founders building global B2B companies."
+  Hi [First Name],
 
-FORBIDDEN opening phrases (any of these appearing in S1 = rewrite):
-  "Over the last decade", "I hope", "I wanted to reach out", "My name is",
-  "I'm writing to", "I came across", "Quick intro", "Just reaching out".
+  [PERSONALIZED PARAGRAPH — exactly 3 sentences]:
+    S1: "[Org name]'s [specific thesis or focus] is a thesis we share, and it's why I'm reaching out."
+        — Name their org and their specific distinguishing characteristic (focus, program, mandate).
+    S2: "Given your [specific behavioral evidence or signal], I'd value your perspective on what we're building."
+        — Use the HIGHEST tier available from the intel:
+          TIER A: Named fund they backed, program they run, number of investments, specific portfolio
+          TIER B: Verbatim thesis quote or mandate language from analyst notes
+          TIER C: LP type + geography + sector combination specific to them
+          NEVER invent facts. Use ONLY what is in the intelligence section.
+    S3 (STATIC — copy verbatim): "Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions."
+
+  *Here's some more context on what we're building:*
+
+  [STATIC PITCH — copy the following paragraphs verbatim, do not alter a single word]:
+{_STATIC_PITCH}
+
+  Would love to chat if you'd like to know more!
+
+  [Sender name]
+
+  General Partner, Contra VC
+
 ═══════════════════════════════════════════════════════
 
-BODY STRUCTURE (4–5 sentences, no more):
-  S1: Hook — 3 components above (no filler, no self-intro)
-  S2: Bridge — why their signal maps to this fund specifically
-  S3: ONE metric OR one portfolio signal (never both; bold the number)
-  S4: CTA — one low-friction question
-  P.S. (optional): only if a warm intro source is known in the intel
-
-NO SELF-INTRODUCTION IN BODY. Never write "I'm [Name], General Partner at…"
-or "My name is…". Your name and title appear in the signature — the body is
-entirely about the recipient.
-
-SUBJECT LINE FORMULA (pick the highest-signal option available):
-  A. "[Org short name] / Contra VC"      — e.g. "Aurum / Contra VC"
-  B. "[Fund they backed] → Contra VC"   — e.g. "Jungle Ventures → Contra VC"
-  C. "via [Mutual name] / Contra VC"    — only if warm_paths > 0
-  NEVER use: "Intro to Contra VC Fund I", questions in subject, exclamation
-  marks, "quick question", or generic greetings.
-
-PERSONALIZATION HIERARCHY (use highest signal available in the intel):
-  1. Named fund commitment + vintage year  ← strongest — always use if present
-  2. Named emerging-manager program they run
-  3. Named portfolio company intersection with our fund
-  4. Verbatim thesis/mandate quote from analyst notes
-  5. LP type + geography + specific sector combination  ← use when 1–4 absent
-  Always produce a draft using the highest available tier. Never block on missing
-  data — a Tier 5 hook is better than no email.
-
-ARCHETYPE-AWARE FOLLOW-UP ANGLE (use when drafting follow-up touch):
-  FoF / fund platform    → lead with sourcing access and deal flow volume
-  Family office / HNWI   → lead with co-invest / SPV priority access
-  Asset manager          → lead with thesis alignment and portfolio proof points
-  (LP archetype will be stated in the prompt)
-
-ADDITIONAL NON-NEGOTIABLES:
+PERSONALIZATION RULES:
+- The ONLY parts you personalize are: the subject line bridge phrase, the recipient's first name,
+  and sentences S1 and S2 of the opening paragraph.
+- Everything else — S3, the "*Here's some more context*" line, all five static pitch paragraphs,
+  the sign-off, the sender name and title — must be copied verbatim.
 - NEVER fabricate facts. Use ONLY the intelligence provided.
-- Under 100 words in the body. Short punchy sentences. Mobile-readable.
-- One fund metric maximum. Do not list the whole deck.
-- Tone: "warm" (default), "formal" (institutional), "concise" (busy exec).
-- If a warm path is provided, reference it naturally in sentence one.
+- NEVER use forbidden opening phrases in S1: "Over the last decade", "I hope",
+  "I wanted to reach out", "My name is", "I'm writing to", "I came across",
+  "Quick intro", "Just reaching out".
+- If a warm path is provided, weave it naturally into S1 or S2.
 
 Return JSON matching the schema you are given.
 """
@@ -124,7 +112,7 @@ Return JSON matching the schema you are given.
 class OutreachDraft(BaseModel):
     """Structured output schema for the outreach LLM call."""
     subject: str = Field(max_length=120)
-    body: str = Field(max_length=2000)
+    body: str = Field(max_length=5000)
     personalization_points: List[str] = Field(
         default_factory=list, max_length=5,
         description="Which specific facts from the intelligence were used as hooks",
@@ -222,7 +210,12 @@ def _build_prompt(
         parts.append(f"\nADDITIONAL SENDER INSTRUCTIONS: {extra_instructions[:400]}")
 
     parts.append(
-        "\nWrite the outreach email now. Return subject, body, personalization_points."
+        f"\n=== STATIC PITCH (copy these paragraphs verbatim into the body) ===\n{_STATIC_PITCH}"
+    )
+    parts.append(
+        "\nWrite the outreach email now following the template exactly. "
+        "Return subject, body (full email from 'Hi [First Name],' through the signature), "
+        "and personalization_points."
     )
     return "\n".join(parts)
 
@@ -270,7 +263,7 @@ def generate_outreach_draft(
         ),
         response_model=OutreachDraft,
         system=_SYSTEM,
-        max_tokens=1500,
+        max_tokens=3000,
     )
 
     draft_id = str(uuid.uuid4())
