@@ -60,26 +60,40 @@ _SYSTEM = f"""You write first-touch LP outreach emails for a VC fund GP.
 FUND: {_FUND_CONTEXT}
 
 ═══════════════════════════════════════════════════════
-EMAIL STRUCTURE — follow this template exactly, filling in only the PERSONALIZED sections:
+EMAIL STRUCTURE — fixed template. Only the SUBJECT BRIDGE and the PERSONALIZED PARAGRAPH change per recipient. Everything else is static.
 
-  Subject: From [Org short name] to Contra - [short specific bridge phrase]
-    - The bridge phrase captures what specifically connects their thesis/org to Contra VC.
-    - EXAMPLE: "From Geek to Contra - backing immigrant founders in AI"
-    - EXAMPLE: "From Industry Ventures to Contra - the fund-of-funds angle"
-    - NEVER use: "Intro to Contra VC", questions, exclamation marks, generic greetings.
+  Subject: From [Org short name] to Contra - [bridge]
+    — "Org short name": shortest recognisable name for their firm/org (e.g. "Greylock", "Techstars", "Oyster")
+    — "bridge": 3–6 words that name the SPECIFIC shared angle (thesis, program, focus, portfolio overlap).
+      Derive it entirely from the intel — it must be unique to this recipient.
+      BAD (generic): "backing great founders", "AI and venture"
+      GOOD (specific): "backing immigrant operators in AI", "the emerging-manager program angle",
+                       "Southeast Asia AI deal flow", "the fund-of-funds lens on Asian operators"
+    — NEVER: "Intro to Contra VC", questions, exclamation marks, generic greetings.
 
   Hi [First Name],
 
-  [PERSONALIZED PARAGRAPH — exactly 3 sentences]:
-    S1: "[Org name]'s [specific thesis or focus] is a thesis we share, and it's why I'm reaching out."
-        — Name their org and their specific distinguishing characteristic (focus, program, mandate).
-    S2: "Given your [specific behavioral evidence or signal], I'd value your perspective on what we're building."
-        — Use the HIGHEST tier available from the intel:
-          TIER A: Named fund they backed, program they run, number of investments, specific portfolio
-          TIER B: Verbatim thesis quote or mandate language from analyst notes
-          TIER C: LP type + geography + sector combination specific to them
-          NEVER invent facts. Use ONLY what is in the intelligence section.
-    S3 (STATIC — copy verbatim): "Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions."
+  [PERSONALIZED PARAGRAPH — exactly 3 sentences. Write these fresh for every recipient.]:
+
+    S1 — Org + specific angle + why you're writing.
+      Do NOT use a fixed template. Write a natural sentence that:
+        • Names their org by its specific identity (what it does / its thesis / its focus)
+        • States the precise connection to what Contra VC is building
+        • Ends with "…and it's why I'm reaching out." OR a similarly natural close
+      Draw from: archetype_evidence, allocation_evidence, investor_details, analyst_notes.
+      Each S1 must be different — never reuse language from prior drafts.
+
+    S2 — Specific evidence signal + value framing.
+      Open with "Given your…" and name the highest-signal fact available:
+        TIER A (use if present): a named fund backed, program run, specific portfolio company,
+                                 quantified track record (e.g. "150+ angel investments")
+        TIER B: a verbatim thesis quote or mandate phrase from the intel
+        TIER C: LP type + geography + sector combination unique to them
+      End with "…I'd value your perspective on what we're building." OR equivalent.
+      NEVER fabricate. Use ONLY what appears in the intelligence section.
+
+    S3 — COPY THIS VERBATIM, unchanged:
+      "Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions."
 
   *Here's some more context on what we're building:*
 
@@ -94,16 +108,15 @@ EMAIL STRUCTURE — follow this template exactly, filling in only the PERSONALIZ
 
 ═══════════════════════════════════════════════════════
 
-PERSONALIZATION RULES:
-- The ONLY parts you personalize are: the subject line bridge phrase, the recipient's first name,
-  and sentences S1 and S2 of the opening paragraph.
-- Everything else — S3, the "*Here's some more context*" line, all five static pitch paragraphs,
-  the sign-off, the sender name and title — must be copied verbatim.
-- NEVER fabricate facts. Use ONLY the intelligence provided.
-- NEVER use forbidden opening phrases in S1: "Over the last decade", "I hope",
-  "I wanted to reach out", "My name is", "I'm writing to", "I came across",
-  "Quick intro", "Just reaching out".
-- If a warm path is provided, weave it naturally into S1 or S2.
+HARD RULES:
+- S1 and S2 must feel freshly written for this specific recipient. If two drafts could plausibly
+  swap S1/S2 with each other, rewrite until they cannot.
+- NEVER start S1 with: "Over the last decade", "I hope", "I wanted to reach out", "My name is",
+  "I'm writing to", "I came across", "Quick intro", "Just reaching out".
+- If warm_paths > 0, reference the mutual connection naturally in S1 or S2.
+- S3, the "*Here's some more context*" line, all five static paragraphs, the sign-off,
+  and the sender title must be copied verbatim — do not paraphrase or summarise them.
+- NEVER invent facts not present in the intelligence.
 
 Return JSON matching the schema you are given.
 """
@@ -160,7 +173,16 @@ def _build_prompt(
     first_contact = next(iter(contacts.values()), {}) if isinstance(contacts, dict) else {}
     appetite = (dossier or {}).get("appetite") or lead.get("appetite_json") or {}
 
-    # Format appetite as labeled signals rather than a raw JSON dump
+    # Pull the richest personalization signals into clearly labelled fields
+    archetype_evidence = appetite.get("archetype_evidence") or ""
+    allocation_evidence = appetite.get("allocation_evidence") or []
+    if isinstance(allocation_evidence, str):
+        try:
+            allocation_evidence = json.loads(allocation_evidence)
+        except Exception:
+            allocation_evidence = [allocation_evidence]
+    similarity_rationale = appetite.get("similarity_rationale") or ""
+
     appetite_signal_keys = (
         "check_size", "stage_preference", "sector_focus",
         "geography", "emerging_manager_program",
@@ -170,7 +192,7 @@ def _build_prompt(
         for k in appetite_signal_keys
         if appetite.get(k) and isinstance(appetite[k], str)
     ]
-    appetite_block = "\n".join(appetite_lines) if appetite_lines else "  (no appetite signals on record)"
+    appetite_block = "\n".join(appetite_lines) if appetite_lines else "  (none on record)"
 
     # Contact name + title for formality calibration
     contact_name = first_contact.get("name") or "(unknown — address the organization)"
@@ -180,17 +202,21 @@ def _build_prompt(
     parts = [
         f"RECIPIENT: {lead['investor_name']}",
         f"Contact person: {contact_label}",
-        f"LP archetype: {(dossier or {}).get('archetype') or lead.get('investor_type') or 'unknown'}",
+        f"Org / firm: {lead['investor_name']}",
+        f"LP archetype: {(dossier or {}).get('archetype') or appetite.get('archetype') or lead.get('investor_type') or 'unknown'}",
         f"Location: {lead.get('investor_location') or 'unknown'}",
         f"Tone: {tone}",
         f"Sender (GP): {sender_name or 'the GP'}",
         "",
-        "=== INTELLIGENCE (use ONLY this — do not invent) ===",
+        "=== INTELLIGENCE — use ONLY these facts; do not invent ===",
+        f"Investor profile / details: {(lead.get('investor_details') or '')[:800]}",
         f"Gate summary: {lead.get('gate_summary') or (dossier or {}).get('research_notes', '')[:400]}",
+        f"Archetype evidence (why they fit): {archetype_evidence}",
+        f"Known portfolio / allocation signals: {json.dumps(allocation_evidence)}",
+        f"Similarity rationale: {similarity_rationale}",
         f"Verified LP commitments: {json.dumps((dossier or {}).get('lp_commitments') or [])}",
         f"Appetite signals:\n{appetite_block}",
         f"Warm paths on record: {lead.get('warm_path_count') or 0}",
-        f"Details: {(lead.get('investor_details') or '')[:600]}",
     ]
 
     if (dossier or {}).get("analyst_notes"):
@@ -198,7 +224,7 @@ def _build_prompt(
 
     latest_event = (dossier or {}).get("latest_portfolio_event") or ""
     if latest_event:
-        parts.append(f"Latest portfolio milestone (use if drafting follow-up): {latest_event[:200]}")
+        parts.append(f"Latest portfolio milestone: {latest_event[:200]}")
 
     if prior_subjects:
         parts.append(
@@ -210,12 +236,17 @@ def _build_prompt(
         parts.append(f"\nADDITIONAL SENDER INSTRUCTIONS: {extra_instructions[:400]}")
 
     parts.append(
-        f"\n=== STATIC PITCH (copy these paragraphs verbatim into the body) ===\n{_STATIC_PITCH}"
+        f"\n=== STATIC PITCH — copy these five paragraphs verbatim into the body, word-for-word ===\n{_STATIC_PITCH}"
     )
     parts.append(
-        "\nWrite the outreach email now following the template exactly. "
+        "\n=== YOUR TASK ===\n"
+        "Write S1 and S2 of the personalized paragraph using ONLY the intelligence above.\n"
+        "S1 must name the recipient's org/fund and capture their SPECIFIC distinguishing characteristic "
+        "(not a generic description). S2 must cite the highest-tier fact available — named portfolio, "
+        "quantified track record, named program, or verbatim thesis language.\n"
+        "If you cannot find a specific fact for S2, use LP type + location + sector — never leave it generic.\n"
         "Return subject, body (full email from 'Hi [First Name],' through the signature), "
-        "and personalization_points."
+        "and personalization_points listing which specific facts from the intel you used."
     )
     return "\n".join(parts)
 
