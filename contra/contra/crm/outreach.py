@@ -12,7 +12,7 @@ Email structure:
     this specific recipient.
   - Personalized opening paragraph (2–3 sentences):
       - Leads with the highest-tier intel signal (named fund, portfolio co, track
-        record, thesis quote). First sentence never starts with "I/We/Contra".
+        record, thesis quote). First sentence MUST start with "I noticed", "I loved", "Your work at", or "Your recent investment".
       - Bridges to Contra VC with the specific overlap point.
       - Optional warm-path / credibility sentence if signal warrants it.
       - (static) Factsheet link + call CTA.
@@ -30,7 +30,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import BaseModel, Field
 
@@ -46,140 +46,188 @@ _FUND_CONTEXT = (
 )
 
 _STATIC_PITCH = """\
-50% of new US tech founders are Asian. That share is rising every YC batch. Contra VC was built around that data point.
+50% of new US tech founders are Asian, yet no institutional fund was built explicitly for these technical-first, first-generation operators. Contra VC is a $30M Fund I designed to fill that exact gap, backing Global Asian founders building B2B AI companies at the pre-seed and seed stages.
 
-We're raising Fund I ($30M) to back Global Asian founders building B2B AI companies for the world. The contrarian insight: first-generation operators from Google, Meta, and OpenAI are founding the next generation of enterprise AI companies, and no institutional fund was purpose-built for them. That's the gap Contra VC was designed to fill.
+My co-GP Sajid and I aren't new to this. Over the past decade, through MyAsiaVC, we've deployed $70M+ across 300+ companies alongside 6,000+ LPs. Contra VC is the institutional form of that edge, giving us the infrastructure to lead rounds ($500-750K checks) and back underestimated founders at inception.
 
-My co-GP Sajid and I aren't new to this. Over the past decade, through MyAsiaVC, we've deployed $70M+ across 300+ companies alongside 6,000+ LPs. We've built one of the largest and most active Global Asian investor communities in the world. Contra VC is the institutional form of that edge, the fund infrastructure that lets us go deeper, move faster, and back founders at the moment it actually matters.
+The founders we back are building in AI infrastructure, vertical automation, and enterprise software. They don't fit the archetype most funds optimise for — which is precisely where the alpha is."""
 
-The founders we back are technical-first, often underestimated, and building in spaces like AI infrastructure, vertical automation, and enterprise software. They don't fit the archetype most institutional funds optimise for, which is precisely where we think the alpha is.
 
-We invest $500-750K at pre-seed and seed, targeting ~30 companies with concentrated follow-on in our highest-conviction positions."""
+_DEFAULT_SENDER = "Aabhas Khanna"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-archetype opening playbooks.
+# Keyed by the gate Archetype enum (contra.gate.models.Archetype). Each entry is
+# injected into the prompt so the hook is written for THIS kind of allocator —
+# a family office should never get the same opening as a fund-of-funds.
+# ─────────────────────────────────────────────────────────────────────────────
+_ARCHETYPE_PLAYBOOKS: Dict[str, str] = {
+    "fund_of_funds": (
+        "ARCHETYPE: Fund-of-funds.\n"
+        "Address them directly about their specific manager investments. Keep it conversational and jargon-free.\n"
+        "Hook examples:\n"
+        "  \"I noticed your emerging manager program backing [named Fund I]. We are the Global Asian AI slot most FoF books are still missing.\"\n"
+        "  \"Your work at [Firm] backing [named manager] suggests you have a deliberate Global Asian operator allocation.\""
+    ),
+    "family_office": (
+        "ARCHETYPE: Family office / UHNWI.\n"
+        "Address their direct deal or legacy focus directly. Keep it human and simple.\n"
+        "Hook examples:\n"
+        "  \"Your recent investment in [named company] stood out to me. We are building a community of founders that I think you would want to see.\"\n"
+        "  \"I noticed your focus on [thesis] at [Family/Office]. That aligns perfectly with what we have spent a decade building.\""
+    ),
+    "founder_lp": (
+        "ARCHETYPE: Founder / operator / angel LP.\n"
+        "Peer-to-peer and SHORT. Lead with a company they founded or backed. Conversational, zero corporate-speak.\n"
+        "Hook examples:\n"
+        "  \"I loved what you built at [Company]. We are backing technical founders who are taking a similar path.\"\n"
+        "  \"Your recent investment in [Company] caught my attention. We are funding similar founders at the earliest stages.\""
+    ),
+    "corporate_investor": (
+        "ARCHETYPE: Corporate VC / strategic / accelerator.\n"
+        "Address their strategic focus directly. Keep it simple and clear.\n"
+        "Hook examples:\n"
+        "  \"I noticed [Corp]'s recent push into [sector]. We are backing founders in that exact space at inception.\"\n"
+        "  \"Your work at [program/accelerator] is impressive. We are funding founders right before they reach that stage.\""
+    ),
+    "institutional_lp": (
+        "ARCHETYPE: Endowment / foundation / institutional LP.\n"
+        "Address their mission or long-term mandate directly. Keep it professional but human.\n"
+        "Hook examples:\n"
+        "  \"I noticed [Institution]'s commitment to [mission/alt-allocation]. We are building a fund that shares that long-term view.\"\n"
+        "  \"Your work at [Institution] supporting first-time managers is exactly what the market needs right now.\""
+    ),
+    "asia_specialist": (
+        "ARCHETYPE: Asia / SEA specialist.\n"
+        "Address their geographic focus directly without using jargon.\n"
+        "Hook examples:\n"
+        "  \"Your work at [Firm] building a portfolio in [SEA/Asia] shows a clear understanding of the region. We are backing those same founders as they build globally.\"\n"
+        "  \"I noticed your recent investments in [region]. We are making a very similar bet on those founders.\""
+    ),
+    "technology_specialist": (
+        "ARCHETYPE: AI / technology specialist.\n"
+        "Address their specific AI or tech investments directly. Keep it conversational.\n"
+        "Hook examples:\n"
+        "  \"Your recent investment in [Portfolio co] caught my eye. We are backing similar founders right at the start.\"\n"
+        "  \"I noticed your focus on AI infrastructure. We are funding those exact founders at the pre-seed stage.\""
+    ),
+    "emerging_manager_specialist": (
+        "ARCHETYPE: Emerging manager specialist.\n"
+        "Address their focus on new managers directly. Keep it simple and confident.\n"
+        "Hook examples:\n"
+        "  \"I noticed that you recently backed [named Fund I]. We are building a new fund based on a decade of prior investments.\"\n"
+        "  \"Your work at [Firm] focusing on emerging managers is exactly why I am reaching out. We are raising a Fund I with a very clear track record.\""
+    ),
+    "generalist": (
+        "ARCHETYPE: Generalist / unknown.\n"
+        "Lead with the single strongest SPECIFIC fact you found about them. Address them directly.\n"
+        "Hook examples:\n"
+        "  \"I noticed your recent work with [Specific fact]. It aligns perfectly with what we are building.\"\n"
+        "  \"Your work at [Firm] in [their angle] stood out to me. I wanted to share what we are working on.\""
+    ),
+}
+_ARCHETYPE_PLAYBOOKS["unknown"] = _ARCHETYPE_PLAYBOOKS["generalist"]
+
+
+# Map raw crm_leads.investor_type strings to a playbook key when the gate has not
+# assigned a behavioral archetype.
+_TYPE_TO_ARCHETYPE = {
+    "fund of funds": "fund_of_funds",
+    "fund-of-funds": "fund_of_funds",
+    "fof": "fund_of_funds",
+    "family office": "family_office",
+    "family_office": "family_office",
+    "multi-family office": "family_office",
+    "single family office": "family_office",
+    "uhnwi": "family_office",
+    "hnwi": "family_office",
+    "angel": "founder_lp",
+    "angel investor": "founder_lp",
+    "individual": "founder_lp",
+    "operator": "founder_lp",
+    "founder": "founder_lp",
+    "gp": "founder_lp",
+    "corporate": "corporate_investor",
+    "corporate vc": "corporate_investor",
+    "cvc": "corporate_investor",
+    "accelerator": "corporate_investor",
+    "strategic": "corporate_investor",
+    "endowment": "institutional_lp",
+    "foundation": "institutional_lp",
+    "pension": "institutional_lp",
+    "institutional": "institutional_lp",
+    "sovereign": "institutional_lp",
+}
+
+
+def _resolve_archetype(lead: Dict[str, Any], dossier: Optional[Dict[str, Any]]) -> str:
+    """Resolve the best playbook key: gate archetype first, then investor_type map."""
+    appetite = (dossier or {}).get("appetite") or lead.get("appetite_json") or {}
+    arch = (appetite.get("archetype") or "").strip().lower()
+    if arch and arch in _ARCHETYPE_PLAYBOOKS:
+        return arch
+    itype = (lead.get("investor_type") or "").strip().lower()
+    if itype in _TYPE_TO_ARCHETYPE:
+        return _TYPE_TO_ARCHETYPE[itype]
+    # Loose contains-match for messy type strings
+    for needle, key in _TYPE_TO_ARCHETYPE.items():
+        if needle in itype:
+            return key
+    return "generalist"
 
 _SYSTEM = f"""You write first-touch LP outreach emails for a VC fund GP.
 
 FUND: {_FUND_CONTEXT}
 
 ═══════════════════════════════════════════════════════
-COLD EMAIL PRINCIPLES — internalize these before writing:
-
-1. LEAD WITH THEIR WORLD, NOT YOURS. The first sentence must make the recipient feel
-   seen and understood before you say a single word about Contra VC.
-2. SPECIFICITY IS PROOF OF RESEARCH. Vague compliments signal a mass blast.
-   Naming a specific fund they backed, a portfolio company, a thesis line they've
-   published, or a program they run signals you actually looked them up.
-3. PATTERN INTERRUPT. Don't open like every other cold email. Avoid "I hope this
-   finds you well", "I wanted to reach out", "Quick intro". Start with a sharp
-   observation, a striking data point, or a named reference to something specific.
-4. SHORT OPENING WINS. The personalized paragraph is 2–3 sentences only.
-   Busy allocators scan first — make every word earn its place.
-5. ONE CLEAR ASK. The factsheet link + call CTA in S3 is the only ask.
-   Don't add more.
+COLD EMAIL PRINCIPLES:
+1. Signal: Identify a real-time event or specific fact (e.g., named portfolio co, thesis quote, LP commitment).
+2. Opener: One sentence naming the signal, proving you did research. Address them DIRECTLY ("You", "Your").
+3. Hook: Connect the signal to Contra VC's thesis in one short sentence.
+4. Short: The personalized section is exactly 2 sentences before the CTA.
 
 ═══════════════════════════════════════════════════════
-SUBJECT LINE STRATEGY
-
-Generate the single best subject line for this specific recipient using whichever
-format scores highest for their archetype. Evaluate all three formats and pick the
-winner — do NOT use format A just because it's listed first.
-
-FORMAT A — Specificity hook (best when you have a named fund, portfolio co, or thesis phrase):
-  "[Org short name] + [named thing from their world] → Contra"
-  Examples:
-    "Techstars + first-gen operator thesis → Contra"
-    "Alumni Ventures + Global Asian deal flow → Contra"
-    "Oyster + the emerging-manager angle → Contra"
-
-FORMAT B — Observation/data lead (best when they have a distinctive mandate or track record):
-  A 6–10 word statement of a sharp insight tied to THEIR specific focus area.
-  Examples:
-    "50% of YC is Asian — you already know this"
-    "The operator archetype your LPs haven't seen funded yet"
-    "Global Asian founders: the thesis hiding in plain sight"
-    "Why first-gen operators are building the next B2B wave"
-
-FORMAT C — Bridge (use when a mutual connection exists OR the overlap is unusually tight):
-  "From [Org short name] to Contra — [3–6 word specific bridge]"
-  Examples:
-    "From Plug and Play to Contra — backing immigrant founders in AI"
-    "From SVB Alumni Network to Contra — the Global Asian LP thesis"
-
-SUBJECT LINE HARD RULES:
-- NEVER: "Intro to Contra VC", generic phrases like "great founders" or "AI and venture",
-  exclamation marks, questions, "reaching out", "just a note", "following up".
-- The subject must be unique to this recipient. If it could be sent to 10 other people
-  unchanged, rewrite it.
-- Max 12 words.
+SUBJECT LINE STRATEGY:
+Max 12 words. Pick the format that produces the most specific subject:
+FORMAT A (Specificity hook): "[Org short name] + [named thing from their world] → Contra"
+FORMAT B (Observation): A 6–10 word insight tied to their focus.
+FORMAT C (Bridge): "From [Org] to Contra — [specific bridge]"
 
 ═══════════════════════════════════════════════════════
-EMAIL STRUCTURE
+EMAIL STRUCTURE:
 
-  [SUBJECT — chosen per above strategy]
+  [SUBJECT]
 
-  Hi [First Name],
+  Hi [First Name] / Name,
 
-  [PERSONALIZED OPENING — 2–3 sentences. NO rigid S1/S2/S3 labeling. Write it as a
-   natural, flowing paragraph that a human would actually send.]
+  [PERSONALIZED OPENING — 2 sentences maximum]
+  Sentence 1: The Signal. State a specific fact about them or their work.
+  Sentence 2: The Hook. A brief bridge connecting that fact to Contra.
 
-  OPENING GUIDANCE:
-  • Sentence 1 — Hook with specificity. Open with the single most impressive or
-    surprising specific fact you know about this recipient: a named fund they backed,
-    a program they run, a portfolio company, a quantified track record, a verbatim
-    thesis quote. Make it about THEM, not about you.
-    Never start with: "I", "We", "Contra", "Over the last decade", "I hope",
-    "I wanted to reach out", "My name is", "I came across", "Quick intro".
-    Instead, try openings like:
-      "[Fund name]'s bet on [thesis area] is one of the sharper theses I've seen in this space..."
-      "[Specific portfolio company] caught my attention — it fits exactly the archetype..."
-      "Backing [X] funds and running [program] puts [Org] in a rare position to..."
-      "[Mutual connection] mentioned you'd been tracking [topic] — that's precisely why I'm writing."
-  • Sentence 2 — Bridge to Contra VC. State the SPECIFIC reason why their world
-    intersects with what Contra is building. Name the precise overlap. This sentence
-    should be impossible to send to anyone else.
-  • Sentence 3 (optional, use only if it adds signal) — Credibility or warm path hook.
-    If warm_paths > 0, reference the mutual connection by name or role.
-    If they have a specific program, quantified track record, or known LP commitment,
-    lean on it here. Otherwise, skip this sentence and keep the opening to 2 sentences.
-
-  SENTENCE 3 — COPY THIS VERBATIM, unchanged:
-    "Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions."
-
+  [STATIC PITCH VERBATIM]
+  Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions.
+  
   *Here's some more context on what we're building:*
 
-  [STATIC PITCH — copy the following paragraphs verbatim, do not alter a single word]:
 {_STATIC_PITCH}
 
   Would love to chat if you'd like to know more!
 
   [Sender name]
-
   General Partner, Contra VC
 
 ═══════════════════════════════════════════════════════
+EXAMPLES OF GOOD OPENINGS:
+- "Your recent investment in Figma stood out to me. We are backing similar B2B founders right at inception."
+- "I noticed you lead the emerging manager program at Accolade. We are building the exact Global Asian allocation your LPs are likely asking for."
+- "The thesis you published on AI infrastructure is spot on. We've spent a decade building the network to back those founders."
 
 HARD RULES:
-- The opening paragraph must feel written FOR this specific person. If it could be
-  copy-pasted to a different recipient unchanged, rewrite it.
-- NEVER fabricate. Use ONLY facts that appear in the intelligence section.
-- NEVER force "Given your…" as an opener — it signals a template.
-- If warm_paths > 0, reference the mutual connection naturally.
-- The factsheet sentence, the "*Here's some more context*" line, all five static
-  paragraphs, the sign-off, and the sender title must be copied verbatim.
-- Vary the opening structure: don't use the same grammatical pattern as prior drafts.
-
-ARCHETYPAL TACTICS (apply based on LP type):
-  Family office / UHNWI:  Lead with their portfolio or investment thesis. They care
-    about strategic alignment with their family's legacy focus areas.
-  Fund of funds:  Lead with their portfolio construction angle — diversity mandate,
-    emerging manager program, or specific manager criteria they've published.
-  Corporate VC / accelerator:  Lead with their portfolio overlap or the specific
-    sector/geography where Contra's founders match their deal flow.
-  Endowment / foundation:  Lead with their mission alignment or long-term allocation
-    mandate. Reference their known alternative allocation percentage if available.
-  Angel / individual:  Lead with their personal track record or a named company they
-    backed. Shorter, more conversational tone.
-
-Return JSON matching the schema you are given.
+- Lead with a specific signal from the research/insights. Do NOT restate generic VC/AI tags.
+- NO EM DASHES OR HYPHENS in the opening paragraph. Use periods to connect thoughts.
+- NEVER fabricate facts.
+- Do not use jargon (e.g., "alpha", "deal flow", "lens").
 """
 
 
@@ -197,16 +245,96 @@ class OutreachDraft(BaseModel):
     )
 
 
+class OutreachCritique(BaseModel):
+    """Critique of the generated email draft."""
+    verdict: Literal["PASS", "REVISE"] = Field(description="PASS if the hook is highly specific and follows all rules. REVISE if it's generic, uses banned words, or fails rules.")
+    critique_reasoning: str = Field(description="Why this passed or failed. If REVISE, what exactly needs fixing.")
+
+
+def _critique_and_revise(
+    llm: Any,
+    draft: OutreachDraft,
+    prompt_str: str,
+) -> OutreachDraft:
+    """Run a critique-revise loop on the draft. Max 2 iterations."""
+    system = "You are a ruthless cold email editor. You critique email drafts against strict rules."
+    
+    for i in range(2):
+        # 1. Deterministic checks first
+        body = draft.body.lower()
+        if "—" in body or "-" in draft.body.split("\n\n")[1]: # Check hyphens in opening paragraph
+            pass # We'll let the LLM judge fix it
+            
+        critique_prompt = f"""Review this cold email draft for a VC LP:
+        
+SUBJECT: {draft.subject}
+
+BODY:
+{draft.body}
+
+CRITERIA:
+1. Does the first sentence lead with a SPECIFIC, named fact from the research (a specific investment, quote, firm, etc.)? If it just says "I noticed your investments in AI" or "I saw you back founders", it is GENERIC.
+2. Does the first sentence start with "Contra", "We", "I wanted to", or "I hope"? (It shouldn't).
+3. Are there any em-dashes (—) or hyphens (-) in the personalized opening paragraph? (There MUST NOT BE ANY).
+4. Does it use jargon like "alpha", "lens", "deal flow"? (It shouldn't).
+
+If it violates ANY of these, or is generic, output REVISE and explain exactly why.
+Otherwise, output PASS.
+"""
+        try:
+            # We use the same LLM client for simplicity, but in a real enterprise setting
+            # you'd inject a different model here to avoid self-preference bias.
+            critique = llm.structured(
+                prompt=critique_prompt,
+                response_model=OutreachCritique,
+                system=system,
+                max_tokens=500,
+            )
+            
+            if critique.verdict == "PASS":
+                logger.debug("Draft passed critique on iteration %d", i+1)
+                break
+                
+            logger.debug("Draft failed critique: %s. Revising...", critique.critique_reasoning)
+            
+            # Revise
+            revise_prompt = prompt_str + f"\n\nYOUR PREVIOUS DRAFT FAILED CRITIQUE:\n{critique.critique_reasoning}\n\nREVISE THE DRAFT TO FIX THESE ISSUES. Do not make the same mistakes."
+            
+            draft = llm.structured(
+                prompt=revise_prompt,
+                response_model=OutreachDraft,
+                system=_SYSTEM,
+                max_tokens=4000,
+            )
+        except Exception as exc:
+            logger.warning("Critique/revise loop failed: %s", exc)
+            break # Fall back to the current draft
+            
+    return draft
+    """Structured output schema for the outreach LLM call."""
+    subject: str = Field(max_length=120)
+    body: str = Field(max_length=5000)
+    personalization_points: List[str] = Field(
+        default_factory=list, max_length=8,
+        description="Which specific facts from the intelligence were used as hooks",
+    )
+    subject_format: str = Field(
+        default="",
+        description="Which subject line format was used: 'A' (specificity hook), 'B' (observation/data), or 'C' (bridge)",
+    )
+
+
 def _outreach_model() -> str:
-    return os.environ.get("OUTREACH_LLM_MODEL", "").strip() or "claude-opus-4-5"
+    return os.environ.get("OUTREACH_LLM_MODEL", "").strip() or "gpt-4o"
 
 
 def _lead_row(con, lead_id: str) -> Optional[Dict[str, Any]]:
     cursor = con.execute(
         """
         SELECT lead_id, investor_name, investor_type, investor_location,
-               investor_details, contacts_json, gate_summary, appetite_json,
-               warm_path_count, pipeline_stage
+               investor_details, contacts_json, gate_summary, gate_reasons_json,
+               appetite_json, warm_path_count, pipeline_stage,
+               icp_tier, fit_score, contra_rank, gate_confidence, gate_verdict
         FROM crm_leads WHERE CAST(lead_id AS VARCHAR) = ?
         """,
         [lead_id],
@@ -216,7 +344,7 @@ def _lead_row(con, lead_id: str) -> Optional[Dict[str, Any]]:
         return None
     cols = [d[0].lower() for d in cursor.description]
     data = dict(zip(cols, row))
-    for jf in ("contacts_json", "appetite_json"):
+    for jf in ("contacts_json", "appetite_json", "gate_reasons_json"):
         if isinstance(data.get(jf), str):
             try:
                 data[jf] = json.loads(data[jf])
@@ -226,6 +354,70 @@ def _lead_row(con, lead_id: str) -> Optional[Dict[str, Any]]:
     return data
 
 
+class OutreachInsight(BaseModel):
+    """A candidate angle for personalization derived from raw research."""
+    fact_or_quote: str = Field(description="The specific fact, quote, or investment to reference")
+    source: str = Field(description="Where this was found")
+    why_non_obvious: str = Field(description="Why this proves deep research")
+    bridge_to_contra: str = Field(description="One sentence connecting this to Contra's AI/Global Asian/Pre-seed thesis")
+
+
+class ExtractedInsights(BaseModel):
+    """The best 3 candidate angles for outreach."""
+    candidate_angles: List[OutreachInsight] = Field(min_length=1, max_length=5)
+
+
+def _extract_insight_angles(
+    llm: Any,
+    name: str,
+    archetype: str,
+    research_text: str,
+    dossier_text: str,
+) -> str:
+    """
+    Run a fast extraction pass over raw research to synthesize 3 concrete personalization angles.
+    This prevents the writer from merely restating raw facts without insight.
+    """
+    if not research_text.strip() and not dossier_text.strip():
+        return "(No research text available for insight extraction)"
+        
+    system = "You are a senior VC analyst preparing a partner for a cold outreach email."
+    prompt = f"""Extract the 3 most compelling personalization angles for {name} from this research.
+    
+    Look for:
+    - Specific podcast quotes, blog posts, or tweets (with the actual takeaway, not just 'they have a podcast')
+    - Surprising or highly specific named investments (why did they back it?)
+    - LP fund commitments or emerging manager programs
+    
+    If the research is generic or mostly namesake noise, extract the best you can find but DO NOT fabricate.
+    
+    RESEARCH:
+    {research_text[:8000]}
+    
+    DOSSIER/DB INTEL:
+    {dossier_text[:3000]}
+    """
+    
+    try:
+        insights = llm.structured(
+            prompt=prompt,
+            response_model=ExtractedInsights,
+            system=system,
+            max_tokens=1500,
+        )
+        lines = []
+        for i, angle in enumerate(insights.candidate_angles, 1):
+            lines.append(f"Angle {i}:")
+            lines.append(f"  - Specific fact: {angle.fact_or_quote}")
+            lines.append(f"  - Source: {angle.source}")
+            lines.append(f"  - Why it's good: {angle.why_non_obvious}")
+            lines.append(f"  - Bridge idea: {angle.bridge_to_contra}")
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.warning("Insight extraction failed for %s: %s", name, exc)
+        return "(Insight extraction failed, rely on raw research)"
+
+
 def _build_prompt(
     lead: Dict[str, Any],
     dossier: Optional[Dict[str, Any]],
@@ -233,6 +425,9 @@ def _build_prompt(
     sender_name: str,
     extra_instructions: str,
     prior_subjects: Optional[List[str]] = None,
+    archetype: str = "generalist",
+    fresh_research: str = "",
+    extracted_insights: str = "",
 ) -> str:
     contacts = lead.get("contacts_json") or {}
     first_contact = next(iter(contacts.values()), {}) if isinstance(contacts, dict) else {}
@@ -247,6 +442,13 @@ def _build_prompt(
         except Exception:
             allocation_evidence = [allocation_evidence]
     similarity_rationale = appetite.get("similarity_rationale") or ""
+    negative_flags = appetite.get("negative_flags") or []
+    if isinstance(negative_flags, str):
+        try:
+            negative_flags = json.loads(negative_flags)
+        except Exception:
+            negative_flags = [negative_flags]
+    negative_evidence = appetite.get("negative_evidence") or ""
 
     appetite_signal_keys = (
         "check_size", "stage_preference", "sector_focus",
@@ -257,19 +459,12 @@ def _build_prompt(
         for k in appetite_signal_keys
         if appetite.get(k) and isinstance(appetite[k], str)
     ]
-    appetite_block = "\n".join(appetite_lines) if appetite_lines else "  (none on record)"
 
     # Contact name + title for formality calibration
-    contact_name = first_contact.get("name") or "(unknown — address the organization)"
+    contact_name = first_contact.get("name") or lead.get('investor_name', '')
     contact_title = first_contact.get("title") or ""
     contact_label = f"{contact_name}" + (f" ({contact_title})" if contact_title else "")
-
-    lp_archetype = (
-        (dossier or {}).get("archetype")
-        or appetite.get("archetype")
-        or lead.get("investor_type")
-        or "unknown"
-    )
+    first_name = contact_name.split()[0] if contact_name else '[First Name]'
 
     # Rank the available intel signals so the LLM knows what's highest-value
     signal_inventory: list[str] = []
@@ -284,10 +479,24 @@ def _build_prompt(
         signal_inventory.append(f"TIER B — Archetype evidence: {archetype_evidence}")
     if similarity_rationale:
         signal_inventory.append(f"TIER B — Similarity rationale: {similarity_rationale}")
+        
+    gate_reasons = lead.get("gate_reasons_json") or []
+    if isinstance(gate_reasons, str):
+        try:
+            gate_reasons = json.loads(gate_reasons)
+        except Exception:
+            gate_reasons = []
+    if gate_reasons:
+        signal_inventory.append(
+            "TIER B — Gate qualification reasons (use as subtext for relevance, "
+            "do NOT quote directly or use as hook angle):\n"
+            + "\n".join(f"  • {r}" for r in gate_reasons[:5])
+        )
+
     if appetite_lines:
         signal_inventory.append(f"TIER C — Appetite signals:\n" + "\n".join(appetite_lines))
     if not signal_inventory:
-        signal_inventory.append("(No strong signals — use LP type + location + sector combo)")
+        signal_inventory.append("(No strong signals — mine the deep research below; else use type + location + sector)")
 
     warm_count = lead.get("warm_path_count") or 0
     warm_note = (
@@ -296,29 +505,113 @@ def _build_prompt(
         if warm_count > 0 else "No warm paths on record"
     )
 
+    playbook = _ARCHETYPE_PLAYBOOKS.get(archetype, _ARCHETYPE_PLAYBOOKS["generalist"])
+
+    # Derive the correct hook axis from WHO this LP is — not what qualified them
+    lp_commitments = (dossier or {}).get("lp_commitments") or []
+    _hook_axis_map = {
+        "fund_of_funds": (
+            "Lead with a SPECIFIC NAMED FUND they backed or their manager selection track record. "
+            "Do NOT lead with their AI/tech portfolio exposure — that was a gate qualifier, not their identity."
+        ),
+        "family_office": (
+            "Lead with a SPECIFIC DEAL, COMPANY, or FOCUS AREA from their family office activity. "
+            "Their identity is as a capital allocator, not a tech investor."
+        ),
+        "founder_lp": (
+            "Lead with something THEY BUILT OR BACKED as a founder or operator. "
+            "Peer tone. Their journey as a builder is the hook — not their LP activity."
+        ),
+        "emerging_manager_specialist": (
+            "Lead with their TRACK RECORD OF BACKING NEW MANAGERS specifically. "
+            "Named funds they anchored if available. This is their primary identity."
+        ),
+        "corporate_investor": (
+            "Lead with their ORGANIZATION'S SPECIFIC PROGRAM or recent strategic move. "
+            "Not generic accelerator language — name the actual program or cohort."
+        ),
+        "institutional_lp": (
+            "Lead with their INSTITUTION'S MANDATE or known alternatives allocation. "
+            "Professional and evidence-first. No startup language."
+        ),
+        "asia_specialist": (
+            "Lead with their SPECIFIC REGIONAL INVESTMENT or portfolio company in Asia/SEA. "
+            "They know the region — acknowledge it with specificity."
+        ),
+        "technology_specialist": (
+            "Lead with a SPECIFIC PORTFOLIO COMPANY they backed, not the generic 'AI focus'. "
+            "The hook must name something real from the research."
+        ),
+        "generalist": (
+            "Lead with the single most SPECIFIC AND UNIQUE fact about them from the web research. "
+            "If no specific fact exists, say so — do not fabricate a hook."
+        ),
+    }
+    hook_axis = _hook_axis_map.get(archetype, _hook_axis_map["generalist"])
+    if lp_commitments:
+        hook_axis = (
+            f"STRONGEST AVAILABLE SIGNAL: Named LP fund commitments on record: {lp_commitments[:3]}. "
+            f"Lead with one of these named funds — this is the most specific hook possible."
+        )
+
+    approach_directive = (
+        f"=== OUTREACH APPROACH DIRECTIVE — read before touching the research ===\n"
+        f"Hook axis for {archetype.upper()}: {hook_axis}\n\n"
+        f"⚠ CRITICAL FRAMING NOTE: The web research and gate summary contain AI/tech/VC signals "
+        f"that were gathered to QUALIFY this LP (C1-C4 gate checks). Those signals tell you they "
+        f"passed the gate. They do NOT tell you how to open the email. The hook must reflect "
+        f"WHO THIS LP IS as an allocator ({archetype}), not why they passed our screening. "
+        f"Do not let AI/tech language from the gate research bleed into the hook unless the LP's "
+        f"PRIMARY identity is technology_specialist."
+    )
+
+    # Combine fresh deep research with the stored dossier research notes (generous budget)
+    stored_research = (dossier or {}).get("research_notes", "") or ""
+    research_blocks: list[str] = []
+    if fresh_research.strip():
+        research_blocks.append(f"FRESH DEEP WEB RESEARCH (run just now):\n{fresh_research.strip()[:6000]}")
+    if stored_research.strip():
+        research_blocks.append(f"STORED DOSSIER RESEARCH:\n{stored_research.strip()[:3000]}")
+    research_section = "\n\n".join(research_blocks) if research_blocks else "(no web research available)"
+
     parts = [
         f"RECIPIENT: {lead['investor_name']}",
         f"Contact person: {contact_label}",
-        f"LP archetype: {lp_archetype}",
+        f"LP archetype (resolved): {archetype}",
         f"Location: {lead.get('investor_location') or 'unknown'}",
+        f"ICP Tier: {lead.get('icp_tier') or 'unknown'}",
+        f"Gate confidence: {lead.get('gate_confidence') or 'unknown'}",
         f"Tone: {tone}",
-        f"Sender (GP): {sender_name or 'the GP'}",
+        f"Sender (GP): {sender_name or _DEFAULT_SENDER}",
         f"Warm paths: {warm_note}",
+        "",
+        approach_directive,
+        "",
+        "=== SYNTHESIZED ANGLES (Use one of these if it lands well) ===",
+        extracted_insights,
+        "",
+        "=== ARCHETYPE PLAYBOOK — write the opening THIS way for THIS kind of LP ===",
+        playbook,
         "",
         "=== INTELLIGENCE — use ONLY these facts; do not invent ===",
         f"Investor profile / details:\n{(lead.get('investor_details') or '')[:1000]}",
-        f"Gate summary: {lead.get('gate_summary') or (dossier or {}).get('research_notes', '')[:600]}",
+        f"Gate summary: {lead.get('gate_summary') or ''}",
+        "",
+        "=== RAW WEB RESEARCH ===",
+        research_section,
         "",
         "=== RANKED PERSONALIZATION SIGNALS (highest → lowest value) ===",
         "\n".join(signal_inventory),
     ]
 
+    if negative_flags or negative_evidence:
+        parts.append(
+            "\n⚠ AVOID / DO-NOT-CLAIM (intel contradicts these angles — never use them):\n"
+            f"  flags: {json.dumps(negative_flags)}\n  notes: {negative_evidence[:400]}"
+        )
+
     if (dossier or {}).get("analyst_notes"):
         parts.append(f"\nAnalyst notes: {dossier['analyst_notes'][:500]}")
-
-    latest_event = (dossier or {}).get("latest_portfolio_event") or ""
-    if latest_event:
-        parts.append(f"Latest portfolio milestone: {latest_event[:200]}")
 
     if prior_subjects:
         parts.append(
@@ -335,39 +628,136 @@ def _build_prompt(
     parts.append(
         "\n=== YOUR TASK ===\n"
         "1. SUBJECT: Evaluate all three subject line formats (A, B, C) from the system prompt. "
-        "Pick the format that produces the most specific and compelling subject for THIS recipient "
-        "using only the ranked signals above. Justify your choice internally, then return only the "
-        "winning subject.\n\n"
-        "2. OPENING PARAGRAPH: Write 2–3 sentences using the HIGHEST-TIER signal available. "
-        "The first sentence must NOT start with 'I', 'We', or 'Contra'. Lead with something "
-        "specific about the recipient's world. Every sentence must be impossible to send "
-        "to a different LP unchanged.\n\n"
-        "3. FULL BODY: Assemble the complete email — opening paragraph, verbatim factsheet "
-        "sentence, '*Here's some more context on what we're building:*' line, all five static "
-        "paragraphs verbatim, then the sign-off.\n\n"
-        "4. PERSONALIZATION POINTS: List the specific facts from the intel you used as hooks "
-        "(be precise — e.g. 'Named fund: Sequoia Heritage' not 'portfolio signals').\n\n"
-        "Return subject, body (full email from 'Hi [First Name],' through the signature), "
-        "and personalization_points."
+        "Pick the format that produces the most specific and compelling subject for THIS recipient. "
+        "Return only the winning subject and which format you used.\n\n"
+        "2. THE HOOK (most important): Write a catchy opening of 1–2 short sentences, ~300 characters "
+        "or less, following the ARCHETYPE PLAYBOOK above. Lead with the single strongest specific fact "
+        "about this recipient from the web research / signals. It must be impossible to send to anyone "
+        "else. You MUST start the first sentence of the hook with exactly one of these phrases: 'I noticed', 'I loved', 'Your work at', or 'Your recent investment'. DO NOT use any dashes or hyphens.\n\n"
+        f"3. FULL BODY: Assemble the complete email — start with 'Hi {first_name},', then the hook, the verbatim factsheet sentence, the "
+        "'*Here's some more context on what we're building:*' line, all five static paragraphs verbatim, "
+        "then the sign-off.\n\n"
+        "4. PERSONALIZATION POINTS: List the specific facts you used as hooks (be precise — "
+        "e.g. 'Named fund: Sequoia Heritage', not 'portfolio signals').\n\n"
+        "Return subject, subject_format, body (full email from 'Hi [First Name],' through the "
+        "signature), and personalization_points."
     )
     return "\n".join(parts)
+
+
+def _deep_research_for_lead(
+    lead: Dict[str, Any],
+    dossier: Optional[Dict[str, Any]],
+    archetype: str,
+) -> str:
+    """
+    Run fresh OpenAI deep research for this LP before the Opus call, specifically looking for hooks.
+    Falls back to Tavily gracefully if OpenAI is unavailable.
+    """
+    name = lead["investor_name"]
+    known_context = lead.get('investor_details') or ''
+    
+    # Try the high-quality adaptive OpenAI research first
+    try:
+        from agents.research.openai_research import openai_lp_outreach_research
+        notes, urls = openai_lp_outreach_research(
+            name=name,
+            archetype=archetype,
+            known_context=known_context,
+        )
+        if notes:
+            return notes
+    except Exception as exc:
+        logger.info("OpenAI outreach research unavailable or failed for '%s': %s", name, exc)
+
+    # Fallback to Tavily
+    try:
+        from agents.research.web_search import SearchUnavailable, get_search_provider
+    except Exception as exc:
+        logger.info("Tavily unavailable (import): %s", exc)
+        return ""
+
+    ltype = (lead.get("investor_type") or "").strip()
+    location = (lead.get("investor_location") or "").strip()
+
+    # Build identity-first queries — who they are as an allocator, not their AI/tech signals
+    queries = [f"{name} venture capital fund LP investment"]
+    if ltype:
+        queries.append(f"{name} {ltype} portfolio investments")
+    if location:
+        queries.append(f"{name} {location} investor")
+
+    results: list[str] = []
+    try:
+        provider = get_search_provider()
+    except Exception as exc:
+        logger.info("Search provider unavailable: %s", exc)
+        return ""
+
+    for q in queries:
+        try:
+            response = provider.search(q, max_results=4)
+            for h in (response.results or []):
+                snippet = h.raw_content or h.snippet or ""
+                url = h.url or ""
+                if snippet:
+                    results.append(f"[{url}] {snippet[:500]}")
+        except SearchUnavailable:
+            logger.info("Tavily unavailable for '%s'", name)
+            break
+        except Exception as exc:
+            logger.info("Tavily query failed for '%s': %s", name, exc)
+
+    return "\n\n".join(results[:8]) if results else ""
 
 
 def generate_outreach_draft(
     con,
     lead_id: str,
     tone: str = "warm",
-    sender_name: str = "",
+    sender_name: str = _DEFAULT_SENDER,
     extra_instructions: str = "",
 ) -> Dict[str, Any]:
     """Generate + persist a personalized outreach draft for a CRM lead."""
     from agents.research.llm_client import LLMUnavailable, get_llm_client
+
+    sender_name = (sender_name or "").strip() or _DEFAULT_SENDER
 
     lead = _lead_row(con, lead_id)
     if not lead:
         raise ValueError(f"Lead '{lead_id}' not found")
 
     dossier = get_dossier(con, lead["investor_name"])
+    archetype = _resolve_archetype(lead, dossier)
+
+    # Always run a fresh, cached deep-research pass so the hook is built on
+    # current, specific facts rather than only stale DB fields.
+    fresh_research = _deep_research_for_lead(lead, dossier, archetype)
+
+    stored_research = (dossier or {}).get("research_notes", "") or ""
+    has_research = bool(fresh_research.strip()) or bool(stored_research.strip())
+    has_signals = bool(
+        ((dossier or {}).get("lp_commitments") or [])
+        or (lead.get("appetite_json") or {}).get("allocation_evidence")
+        or lead.get("gate_summary", "").strip()
+    )
+
+    if not has_research and not has_signals:
+        logger.warning(
+            "Outreach draft blocked for '%s': no research and no signals available. "
+            "Run gate screen first to populate dossier.",
+            lead["investor_name"],
+        )
+        return {
+            "draft_id": None,
+            "lead_id": lead["lead_id"],
+            "investor_name": lead["investor_name"],
+            "error": "insufficient_intel",
+            "message": (
+                f"No research or signals available for {lead['investor_name']}. "
+                "Run a gate screen first to populate the dossier, then regenerate."
+            ),
+        }
 
     # Fetch previous subjects to prevent hook repetition on re-generate
     prior_subjects: List[str] = []
@@ -383,26 +773,47 @@ def generate_outreach_draft(
 
     model = _outreach_model()
     try:
-        llm = get_llm_client(provider="anthropic", model=model)
+        provider = os.environ.get("OUTREACH_LLM_PROVIDER", os.environ.get("PULSE_LLM_PROVIDER", "anthropic"))
+        llm = get_llm_client(provider=provider, model=model)
     except LLMUnavailable:
         # Fall back to the default configured provider (e.g. Haiku / OpenAI)
         llm = get_llm_client()
         model = getattr(llm, "model", "unknown")
 
+    # Extract insights before writing
+    stored_research = (dossier or {}).get("research_notes", "") or ""
+    extracted_insights = _extract_insight_angles(
+        llm=llm,
+        name=lead["investor_name"],
+        archetype=archetype,
+        research_text=fresh_research,
+        dossier_text=stored_research + "\n" + (lead.get("investor_details") or ""),
+    )
+
+    prompt_str = _build_prompt(
+        lead, dossier, tone, sender_name, extra_instructions,
+        prior_subjects=prior_subjects or None,
+        archetype=archetype,
+        fresh_research=fresh_research,
+        extracted_insights=extracted_insights,
+    )
+    
     draft = llm.structured(
-        prompt=_build_prompt(
-            lead, dossier, tone, sender_name, extra_instructions,
-            prior_subjects=prior_subjects or None,
-        ),
+        prompt=prompt_str,
         response_model=OutreachDraft,
         system=_SYSTEM,
         max_tokens=4000,
     )
 
+    # 5. Critique and Revise Loop
+    draft = _critique_and_revise(llm, draft, prompt_str)
+
     draft_id = str(uuid.uuid4())
     personalization_payload = {
         "points": draft.personalization_points,
         "subject_format": draft.subject_format or "",
+        "archetype": archetype,
+        "deep_research_used": bool(fresh_research.strip()),
     }
     con.execute(
         """
@@ -430,6 +841,8 @@ def generate_outreach_draft(
         "investor_name": lead["investor_name"],
         "subject": draft.subject,
         "subject_format": draft.subject_format or "",
+        "archetype": archetype,
+        "deep_research_used": bool(fresh_research.strip()),
         "body": draft.body,
         "tone": tone,
         "model": model,
@@ -464,11 +877,13 @@ def list_outreach_drafts(con, lead_id: str) -> List[Dict[str, Any]]:
             except Exception:
                 raw = {}
         # Support both old list format and new dict format
+        archetype = ""
         if isinstance(raw, list):
             points, subject_format = raw, ""
         elif isinstance(raw, dict):
             points = raw.get("points") or []
             subject_format = raw.get("subject_format") or ""
+            archetype = raw.get("archetype") or ""
         else:
             points, subject_format = [], ""
         out.append({
@@ -476,6 +891,7 @@ def list_outreach_drafts(con, lead_id: str) -> List[Dict[str, Any]]:
             "lead_id": data.get("lead_id"),
             "investor_name": data.get("investor_name"),
             "subject": data.get("subject"),
+            "archetype": archetype,
             "body": data.get("body"),
             "tone": data.get("tone"),
             "model": data.get("model"),
