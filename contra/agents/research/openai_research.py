@@ -1,10 +1,10 @@
 """
-Deep LP research via OpenAI web search — single adaptive call.
+Deep LP research via web search — single adaptive call.
 
-Replaces the fixed 7-query Tavily fan-out for gate research when
-PULSE_SEARCH_PROVIDER is 'openai' or 'auto' (with OPENAI_API_KEY set).
+Prefers Anthropic's built-in web_search_20250305 tool (no extra API key needed
+if ANTHROPIC_API_KEY is set). Falls back to OpenAI's Responses API web search.
 
-Why this is better than the query fan-out:
+Why this is better than the fixed Tavily query fan-out:
   - The model runs MULTIPLE searches internally and adapts follow-up searches
     to what it finds (e.g. finds "trustee of X family office" → searches
     "X family office fund commitments").
@@ -22,6 +22,7 @@ import logging
 from typing import List, Optional, Tuple
 
 from agents.research.web_search import (
+    AnthropicWebSearchProvider,
     FetchError,
     OpenAIWebSearchProvider,
     SearchUnavailable,
@@ -31,6 +32,24 @@ from agents.research.web_search import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _get_deep_research_provider():
+    """
+    Return the best available web-search provider for deep LP research.
+    Prefers Anthropic (uses existing ANTHROPIC_API_KEY, no extra cost).
+    Falls back to OpenAI if Anthropic is not configured.
+    """
+    for cls in (AnthropicWebSearchProvider, OpenAIWebSearchProvider):
+        try:
+            return cls()
+        except SearchUnavailable:
+            continue
+    raise SearchUnavailable(
+        "No web search provider configured. Set ANTHROPIC_API_KEY (recommended) "
+        "or OPENAI_API_KEY, and set PULSE_SEARCH_PROVIDER=auto."
+    )
+
 
 _RESEARCH_INSTRUCTIONS = """You are a private-markets research analyst screening a potential
 limited partner (LP) for an AI-native VC Fund I ($30M, pre-seed to Series A, geographies:
@@ -106,7 +125,7 @@ def openai_lp_deep_research(
     Raises SearchUnavailable / FetchError on failure so callers can fall back
     to the Tavily query fan-out.
     """
-    provider = OpenAIWebSearchProvider()  # raises SearchUnavailable if no key
+    provider = _get_deep_research_provider()
 
     cache_key = _cache_key(
         f"deep-research:{name.lower().strip()}:{screening_mode}:{nfx_url or ''}:{match_untrusted}"
@@ -125,16 +144,16 @@ def openai_lp_deep_research(
     )
     notes, citations = provider.research(prompt)
     if not notes.strip():
-        raise FetchError(f"OpenAI deep research returned empty notes for '{name}'")
+        raise FetchError(f"Deep research returned empty notes for '{name}'")
 
     urls: List[str] = []
     seen: set = set()
     for c in citations:
-        if c["url"] and c["url"] not in seen:
+        if c.get("url") and c["url"] not in seen:
             seen.add(c["url"])
             urls.append(c["url"])
 
-    header = f"=== DEEP WEB RESEARCH (OpenAI {provider.model} + web search) ===\n"
+    header = f"=== DEEP WEB RESEARCH ({provider.__class__.__name__} {provider.model} + web search) ===\n"
     notes = header + notes.strip()
 
     _save_cache(cache_key, {"name": name, "notes": notes, "urls": urls})
@@ -184,7 +203,7 @@ def openai_lp_outreach_research(
     """
     Run one adaptive deep-research call specifically tuned for finding cold-email hooks.
     """
-    provider = OpenAIWebSearchProvider()
+    provider = _get_deep_research_provider()
 
     cache_key = _cache_key(f"outreach-research:{name.lower().strip()}:{archetype}")
     cached = _load_cache(cache_key)
@@ -195,7 +214,7 @@ def openai_lp_outreach_research(
     prompt = build_outreach_research_prompt(name, archetype, known_context)
     notes, citations = provider.research(prompt)
     if not notes or not notes.strip():
-        raise FetchError(f"OpenAI outreach research returned empty notes for '{name}'")
+        raise FetchError(f"Outreach research returned empty notes for '{name}'")
 
     urls: List[str] = []
     seen: set = set()
@@ -204,7 +223,7 @@ def openai_lp_outreach_research(
             seen.add(c["url"])
             urls.append(c["url"])
 
-    header = f"=== OUTREACH DEEP WEB RESEARCH (OpenAI {provider.model} + web search) ===\n"
+    header = f"=== OUTREACH DEEP WEB RESEARCH ({provider.__class__.__name__} {provider.model} + web search) ===\n"
     notes = header + notes.strip()
 
     _save_cache(cache_key, {"name": name, "notes": notes, "urls": urls})

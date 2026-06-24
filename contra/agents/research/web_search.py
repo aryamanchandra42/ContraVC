@@ -2,10 +2,14 @@
 Web search and page-fetch layer for PULSE research agents.
 
 Provider selection via PULSE_SEARCH_PROVIDER env var:
-    openai  → OpenAI Responses API with built-in web_search tool (OPENAI_API_KEY)
-    tavily  → Tavily AI Search API (TAVILY_API_KEY)
-    auto    → openai if OPENAI_API_KEY is set, else tavily
-    none    → raises SearchUnavailable; callers fall back to local-only mode
+    anthropic → Anthropic Messages API with built-in web_search tool (ANTHROPIC_API_KEY) [recommended]
+    openai    → OpenAI Responses API with built-in web_search tool (OPENAI_API_KEY)
+    tavily    → Tavily AI Search API (TAVILY_API_KEY)
+    auto      → tries anthropic → openai → tavily, uses first configured one
+    none      → raises SearchUnavailable; callers fall back to local-only mode
+
+If you already have ANTHROPIC_API_KEY set, use PULSE_SEARCH_PROVIDER=anthropic (or auto).
+No additional API keys or services are needed.
 
 Cache contract (mirrors ontology cache):
     Every search/fetch result is cached at:
@@ -369,10 +373,178 @@ class OpenAIWebSearchProvider:
 
 
 # ---------------------------------------------------------------------------
+# Anthropic web-search provider (Messages API + built-in web_search tool)
+# ---------------------------------------------------------------------------
+
+class AnthropicWebSearchProvider:
+    """
+    Anthropic Messages API with the built-in ``web_search_20250305`` server-side tool.
+
+    Anthropic executes the search on their infrastructure; Claude synthesizes
+    the findings and returns URL citations — no separate search API key needed.
+    Billed against existing ANTHROPIC_API_KEY credits.
+
+    Requires: pip install anthropic; ANTHROPIC_API_KEY (or CLAUDE_API_KEY) env var.
+    Model via ANTHROPIC_SEARCH_MODEL (default: claude-3-5-sonnet-20241022 — cheapest
+    search-capable model; Haiku does not support web_search_20250305).
+    """
+
+    # Models known to support web_search_20250305 (cheapest first)
+    _SEARCH_MODELS = (
+        "claude-3-5-sonnet-20241022",
+        "claude-sonnet-4-6",
+        "claude-opus-4-5",
+    )
+
+    def __init__(self) -> None:
+        api_key = (
+            os.environ.get("ANTHROPIC_API_KEY", "").strip()
+            or os.environ.get("CLAUDE_API_KEY", "").strip()
+        )
+        if not api_key:
+            raise SearchUnavailable(
+                "AnthropicWebSearchProvider requires ANTHROPIC_API_KEY (or CLAUDE_API_KEY) to be set."
+            )
+        try:
+            import anthropic as _anthropic  # type: ignore[import]
+            self._anthropic = _anthropic
+        except ImportError as exc:
+            raise SearchUnavailable(
+                "anthropic package is not installed. Run: pip install anthropic"
+            ) from exc
+        self._client = self._anthropic.Anthropic(api_key=api_key)
+        self.model = (
+            os.environ.get("ANTHROPIC_SEARCH_MODEL", "").strip()
+            or self._SEARCH_MODELS[0]
+        )
+
+    # -- internal ----------------------------------------------------------
+
+    def _messages_with_search(self, prompt: str) -> tuple[str, List[dict]]:
+        """Run a Messages API call with web_search_20250305; return (text, citations)."""
+        resp = self._client.messages.create(
+            model=self.model,
+            max_tokens=2048,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text_parts: List[str] = []
+        citations: List[dict] = []
+
+        for block in getattr(resp, "content", None) or []:
+            block_type = getattr(block, "type", "")
+            if block_type == "text":
+                raw_text = getattr(block, "text", "") or ""
+                text_parts.append(raw_text)
+                # Extract URL citations embedded in text blocks
+                for ann in getattr(block, "citations", None) or []:
+                    url = getattr(ann, "url", "") or ""
+                    title = getattr(ann, "title", "") or url
+                    cited = getattr(ann, "cited_text", "") or ""
+                    if url:
+                        citations.append({"url": url, "title": title, "snippet": cited})
+
+        return "\n".join(text_parts).strip(), citations
+
+    def research(self, prompt: str) -> tuple[str, List[dict]]:
+        """Public single-call research: returns (synthesized text, url citations)."""
+        return self._messages_with_search(prompt)
+
+    # -- WebSearchProvider protocol ----------------------------------------
+
+    def search(self, query: str, max_results: int = 5) -> SearchResponse:
+        cache_key = _cache_key(f"anthropic-search:{query}:{max_results}")
+        cached = _load_cache(cache_key)
+        if cached:
+            logger.debug("Research cache hit: anthropic search '%s'", query)
+            return SearchResponse(
+                query=cached["query"],
+                results=[SearchResult(**r) for r in cached["results"]],
+                cached=True,
+                fetched_at=cached["fetched_at"],
+            )
+
+        logger.debug("Anthropic web search: '%s'", query)
+        prompt = (
+            f"Search the web for: {query}\n\n"
+            "Report only concrete findings relevant to the query as terse bullet "
+            "points, each with its source URL. If you find any contact information "
+            "(email addresses, LinkedIn profile URLs, X/Twitter URLs), include them "
+            "exactly as they appear. Prefer primary sources (company sites, regulatory "
+            "filings, LinkedIn, Crunchbase, PitchBook). "
+            "If nothing relevant is found, reply exactly: No relevant results."
+        )
+        try:
+            text, citations = self._messages_with_search(prompt)
+        except Exception as exc:
+            raise FetchError(f"Anthropic web search failed: {exc}") from exc
+
+        results: List[SearchResult] = []
+        seen_urls: set[str] = set()
+
+        # Each citation → one SearchResult
+        for c in citations:
+            url = c.get("url", "")
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            results.append(SearchResult(
+                title=c.get("title") or url,
+                url=url,
+                snippet=c.get("snippet") or "",
+                score=1.0,
+                raw_content=c.get("snippet") or "",
+            ))
+
+        # Fallback: if no citations parsed, wrap the whole text as one result
+        if not results and text and text != "No relevant results.":
+            results.append(SearchResult(
+                title=query,
+                url="anthropic://web-search",
+                snippet=text[:1000],
+                score=1.0,
+                raw_content=text,
+            ))
+
+        results = results[:max_results]
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        _save_cache(cache_key, {
+            "query": query,
+            "results": [
+                {"title": r.title, "url": r.url, "snippet": r.snippet,
+                 "score": r.score, "raw_content": r.raw_content}
+                for r in results
+            ],
+            "fetched_at": fetched_at,
+        })
+        return SearchResponse(query=query, results=results, fetched_at=fetched_at)
+
+    def fetch(self, url: str) -> str:
+        cache_key = _cache_key(f"anthropic-fetch:{url}")
+        cached = _load_cache(cache_key)
+        if cached:
+            return cached.get("content", "")
+
+        prompt = (
+            f"Open and read this page: {url}\n"
+            "Reproduce the substantive content (investor bio, mandate, check sizes, "
+            "portfolio, locations) as plain text. No commentary."
+        )
+        try:
+            text, _ = self._messages_with_search(prompt)
+        except Exception as exc:
+            raise FetchError(f"Anthropic fetch failed for '{url}': {exc}") from exc
+
+        _save_cache(cache_key, {"url": url, "content": text})
+        return text
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
 _PROVIDERS: dict[str, type] = {
+    "anthropic": AnthropicWebSearchProvider,
     "tavily": TavilyProvider,
     "openai": OpenAIWebSearchProvider,
 }
@@ -382,20 +554,21 @@ def get_search_provider(provider: Optional[str] = None) -> WebSearchProvider:
     """
     Return a configured web search provider.
 
-    'auto' prefers OpenAI web search (uses existing API credits) and falls back
-    to Tavily. Raises SearchUnavailable if nothing is configured.
+    'auto' tries anthropic → openai → tavily (first one with credentials wins).
+    If you have ANTHROPIC_API_KEY set, no other search credentials are needed.
+    Raises SearchUnavailable if nothing is configured.
     """
     resolved = (provider or os.environ.get("PULSE_SEARCH_PROVIDER", "none")).lower().strip()
 
     if resolved in ("none", ""):
         raise SearchUnavailable(
             "No search provider configured. Set PULSE_SEARCH_PROVIDER=auto "
-            "(or openai / tavily) with the matching API key."
+            "(or anthropic / openai / tavily) with the matching API key."
         )
 
     if resolved == "auto":
         errors = []
-        for name in ("openai", "tavily"):
+        for name in ("anthropic", "openai", "tavily"):
             try:
                 return _PROVIDERS[name]()
             except SearchUnavailable as exc:
@@ -411,6 +584,16 @@ def get_search_provider(provider: Optional[str] = None) -> WebSearchProvider:
         )
 
     return _PROVIDERS[resolved]()
+
+
+def anthropic_search_configured() -> bool:
+    """True when the Anthropic web-search path can be used for deep LP research."""
+    resolved = os.environ.get("PULSE_SEARCH_PROVIDER", "none").lower().strip()
+    has_key = bool(
+        os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        or os.environ.get("CLAUDE_API_KEY", "").strip()
+    )
+    return resolved in ("anthropic", "auto") and has_key
 
 
 def openai_search_configured() -> bool:

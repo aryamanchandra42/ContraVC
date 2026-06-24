@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field
 
 from contra.crm.dossier import append_outreach_event, get_dossier
+from contra.crm import airtable_sync
 
 logger = logging.getLogger(__name__)
 
@@ -422,20 +423,9 @@ Otherwise, output PASS.
             break # Fall back to the current draft
             
     return draft
-    """Structured output schema for the outreach LLM call."""
-    subject: str = Field(max_length=120)
-    body: str = Field(max_length=5000)
-    personalization_points: List[str] = Field(
-        default_factory=list, max_length=8,
-        description="Which specific facts from the intelligence were used as hooks",
-    )
-    subject_format: str = Field(
-        default="",
-        description="Which subject line format was used: 'A' (specificity hook), 'B' (observation/data), or 'C' (bridge)",
-    )
 
 
-def _outreach_model() -> str
+def _outreach_model() -> str:
     return os.environ.get("OUTREACH_LLM_MODEL", "").strip() or "gpt-4o"
 
 
@@ -983,7 +973,7 @@ def generate_outreach_draft(
         "subject_format": draft.subject_format or "",
         "model": model,
     })
-    return {
+    result = {
         "draft_id": draft_id,
         "lead_id": lead["lead_id"],
         "investor_name": lead["investor_name"],
@@ -997,6 +987,15 @@ def generate_outreach_draft(
         "personalization_points": draft.personalization_points,
         "status": "draft",
     }
+    # Push to Airtable: new draft row + update lead's latest email inline
+    airtable_sync.push_outreach_draft(result)
+    airtable_sync.update_lead_latest_email(
+        investor_name=lead["investor_name"],
+        subject=draft.subject,
+        body=draft.body,
+        pipeline_stage="Outreach Sent",
+    )
+    return result
 
 
 def list_outreach_drafts(con, lead_id: str) -> List[Dict[str, Any]]:
@@ -1075,6 +1074,15 @@ def update_draft_status(con, draft_id: str, status: str) -> bool:
             "WHERE investor_name = ? AND status = 'active'",
             [row[0]],
         )
+        # Sync to Airtable — mark draft sent and advance lead stage
+        airtable_sync.update_draft_status_airtable(draft_id, "sent")
+        airtable_sync.update_lead_latest_email(
+            investor_name=row[0],
+            subject=row[1],
+            body="",
+            pipeline_stage="Outreach Sent",
+            status="contacted",
+        )
     elif status == "draft":
         # Allow undoing a mistaken "sent" mark
         con.execute(
@@ -1082,4 +1090,9 @@ def update_draft_status(con, draft_id: str, status: str) -> bool:
             "WHERE investor_name = ? AND status = 'contacted'",
             [row[0]],
         )
+        airtable_sync.update_draft_status_airtable(draft_id, "draft")
+    elif status == "approved":
+        airtable_sync.update_draft_status_airtable(draft_id, "approved")
+    elif status == "discarded":
+        airtable_sync.update_draft_status_airtable(draft_id, "discarded")
     return True

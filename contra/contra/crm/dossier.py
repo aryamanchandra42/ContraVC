@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from agents.normalization.crm_normalizer import norm_key
 from contra.gate.models import GateResult
+from contra.crm import airtable_sync
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,19 @@ def upsert_dossier_from_gate(
                 """,
                 row,
             )
+        # Push to Airtable after successful DB write
+        airtable_sync.push_dossier({
+            "name_key": key,
+            "investor_name": result.lp_name,
+            "allocator_id": allocator_id or prev_allocator,
+            "latest_verdict": verdict,
+            "lp_commitments": result.lp_commitments_found or [],
+            "appetite": result.appetite.model_dump() if result.appetite else {},
+            "sources": result.source_urls or [],
+            "research_notes": (web_context or "")[:10000],
+            "analyst_notes": analyst_notes,
+            "outreach_history": outreach,
+        })
     except Exception as exc:
         logger.warning("Dossier upsert failed for '%s': %s", result.lp_name, exc)
 
@@ -276,6 +290,14 @@ def tag_rejection(
             "reason":       reason,
             "note":         note[:400] if note else "",
             "revisit_date": revisit_date,
+        })
+
+        # Sync rejection to Airtable dossier
+        airtable_sync.push_dossier({
+            "name_key": key,
+            "investor_name": name,
+            "rejection_reason": reason,
+            "revisit_date": revisit_date or "",
         })
 
         return True

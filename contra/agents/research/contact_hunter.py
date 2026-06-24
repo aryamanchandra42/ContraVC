@@ -6,18 +6,48 @@ extracts them via regex, and verifies emails before persisting.
 
 Each extracted contact value is associated with the source URL it was found on,
 stored as `context_url` inside the channels_json blob so incorrect finds can be traced.
+
+Provider selection:
+  CONTACT_HUNTER_SEARCH_PROVIDER env var (default: "anthropic").
+  Uses Claude's built-in web search — no extra API key needed if ANTHROPIC_API_KEY
+  is already set. Falls back to Tavily on quota/rate-limit errors.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Tuple
+import os
+from typing import Dict, List, Optional
 
-from agents.research.web_search import get_search_provider, SearchUnavailable
+from agents.research.web_search import (
+    get_search_provider, SearchUnavailable, TavilyProvider, AnthropicWebSearchProvider,
+)
 from agents.research.verifalia_client import verify_emails
 from contra.intelligence.contact_extract import _extract_from_text, _dedupe_channels, _upsert_gate_contact
 
 logger = logging.getLogger(__name__)
+
+_QUOTA_PHRASES = ("insufficient_quota", "rate_limit", "429", "quota exceeded", "billing")
+
+
+def _is_quota_error(exc: Exception) -> bool:
+    return any(p in str(exc).lower() for p in _QUOTA_PHRASES)
+
+
+def _get_contact_provider():
+    """
+    Return the best available search provider for contact hunting.
+
+    Prefers CONTACT_HUNTER_SEARCH_PROVIDER (default: tavily) over the global
+    PULSE_SEARCH_PROVIDER setting so an exhausted OpenAI quota doesn't block
+    contact searches.
+    """
+    pref = os.environ.get("CONTACT_HUNTER_SEARCH_PROVIDER", "anthropic").lower().strip()
+    try:
+        return get_search_provider(pref)
+    except SearchUnavailable:
+        # If preferred provider isn't configured, fall back to auto
+        return get_search_provider("auto")
 
 
 def hunt_and_persist_contacts(
@@ -33,7 +63,7 @@ def hunt_and_persist_contacts(
     came from (`context_url` inside channels_json) so incorrect results can be traced.
     """
     try:
-        provider = get_search_provider()
+        provider = _get_contact_provider()
     except SearchUnavailable:
         logger.warning(f"Contact Hunter: Web search unavailable for {lp_name}")
         return {"emails": 0, "linkedin": 0, "twitter": 0}
@@ -44,8 +74,31 @@ def hunt_and_persist_contacts(
     try:
         resp = provider.search(query, max_results=max_results)
     except Exception as exc:
-        logger.error(f"Contact Hunter: Search failed for {lp_name}: {exc}")
-        return {"emails": 0, "linkedin": 0, "twitter": 0}
+        if _is_quota_error(exc):
+            # Primary provider hit a quota/rate-limit — retry with Anthropic, then Tavily
+            logger.warning(
+                f"Contact Hunter: Search failed for {lp_name} (quota/rate-limit), "
+                f"retrying with fallback provider: {exc}"
+            )
+            fallback_providers = [AnthropicWebSearchProvider, TavilyProvider]
+            resp = None
+            for fb_cls in fallback_providers:
+                try:
+                    fb = fb_cls()
+                    resp = fb.search(query, max_results=max_results)
+                    break
+                except SearchUnavailable:
+                    continue
+                except Exception as retry_exc:
+                    logger.warning(
+                        f"Contact Hunter: {fb_cls.__name__} retry also failed for {lp_name}: {retry_exc}"
+                    )
+            if resp is None:
+                logger.error(f"Contact Hunter: All fallback providers failed for {lp_name}")
+                return {"emails": 0, "linkedin": 0, "twitter": 0}
+        else:
+            logger.error(f"Contact Hunter: Search failed for {lp_name}: {exc}")
+            return {"emails": 0, "linkedin": 0, "twitter": 0}
 
     # Maps value → first source URL where it was found (keeps the most-specific origin).
     email_source_url: Dict[str, str] = {}

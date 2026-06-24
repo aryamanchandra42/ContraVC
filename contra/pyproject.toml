@@ -45,6 +45,9 @@ api = [
     "uvicorn[standard]>=0.29",
     "python-multipart>=0.0.9",
 ]
+airtable = [
+    "pyairtable>=2.3",
+]
 
 [project.scripts]
 contra = "contra.__main__:app"
