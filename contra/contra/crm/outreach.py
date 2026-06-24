@@ -11,10 +11,11 @@ Email structure:
     lead, or bridge) based on which produces the most compelling and unique line for
     this specific recipient.
   - Personalized opening paragraph (2–3 sentences):
-      - Leads with the highest-tier intel signal (named fund, portfolio co, track
-        record, thesis quote). First sentence MUST start with "I noticed", "I loved", "Your work at", or "Your recent investment".
-      - Bridges to Contra VC with the specific overlap point.
-      - Optional warm-path / credibility sentence if signal warrants it.
+      - Sentence 1: Their thesis — what their fund/firm stands for, who they back,
+        what they believe. Leads with THEIR worldview, not a data point about them.
+      - Sentence 2: Bridge — how Contra's thesis connects to theirs specifically.
+      - Sentence 3: Specific research fact woven in as validation — the
+        named fund, investment, or data point lives HERE as evidence, not as the opener.
       - (static) Factsheet link + call CTA.
   - Static pitch block (verbatim, 5 paragraphs): data point → fund thesis →
     GP track record → founder archetype → investment mechanics.
@@ -69,66 +70,83 @@ _DEFAULT_SENDER = "Aabhas Khanna"
 _ARCHETYPE_PLAYBOOKS: Dict[str, str] = {
     "fund_of_funds": (
         "ARCHETYPE: Fund-of-funds.\n"
-        "Address them directly about their specific manager investments. Keep it conversational and jargon-free.\n"
+        "Lead with THEIR THESIS as a manager selector — what they believe about which managers win.\n"
+        "Sentence 1 frames their conviction. Sentence 2 bridges to Contra's thesis. Sentence 3 names a specific fund they backed as evidence.\n"
         "Hook examples:\n"
-        "  \"I noticed your emerging manager program backing [named Fund I]. We are the Global Asian AI slot most FoF books are still missing.\"\n"
-        "  \"Your work at [Firm] backing [named manager] suggests you have a deliberate Global Asian operator allocation.\""
+        "  S1: \"[Firm] was built around the belief that the best emerging managers are still invisible to most institutional capital.\"\n"
+        "  S2: \"That's the same gap we're filling at Contra, specifically for Global Asian AI founders.\"\n"
+        "  S3: \"Your commitment to [named Fund I] told me you'd find our approach worth 20 minutes.\""
     ),
     "family_office": (
         "ARCHETYPE: Family office / UHNWI.\n"
-        "Address their direct deal or legacy focus directly. Keep it human and simple.\n"
+        "Lead with their investment identity or legacy thesis. Keep it human and simple.\n"
+        "Sentence 1 frames who they are as capital allocators. Sentence 2 connects to Contra. Sentence 3 names a specific deal or focus area.\n"
         "Hook examples:\n"
-        "  \"Your recent investment in [named company] stood out to me. We are building a community of founders that I think you would want to see.\"\n"
-        "  \"I noticed your focus on [thesis] at [Family/Office]. That aligns perfectly with what we have spent a decade building.\""
+        "  S1: \"[Family Office] has consistently backed founders that traditional capital misses — direct, conviction-led, long-term.\"\n"
+        "  S2: \"That's exactly the investor mindset Contra is building around.\"\n"
+        "  S3: \"Your investment in [named company] confirmed that you understand this space at the earliest stages.\""
     ),
     "founder_lp": (
         "ARCHETYPE: Founder / operator / angel LP.\n"
-        "Peer-to-peer and SHORT. Lead with a company they founded or backed. Conversational, zero corporate-speak.\n"
+        "Peer-to-peer tone. Lead with what they built or what drives their angel thesis, not a dry fact.\n"
+        "Sentence 1 frames their builder identity. Sentence 2 shows the shared conviction. Sentence 3 names what they built or backed.\n"
         "Hook examples:\n"
-        "  \"I loved what you built at [Company]. We are backing technical founders who are taking a similar path.\"\n"
-        "  \"Your recent investment in [Company] caught my attention. We are funding similar founders at the earliest stages.\""
+        "  S1: \"What you built at [Company] — [what made it distinctive] — is the same pattern we back at Contra before anyone else sees it.\"\n"
+        "  S2: \"First-generation technical founders building B2B AI are exactly the archetype we fund at inception.\"\n"
+        "  S3: \"Your investment in [specific company] is exactly the kind of early conviction that resonates with how we operate.\""
     ),
     "corporate_investor": (
         "ARCHETYPE: Corporate VC / strategic / accelerator.\n"
-        "Address their strategic focus directly. Keep it simple and clear.\n"
+        "Lead with their organization's thesis or strategic mission, not a generic program name.\n"
+        "Sentence 1 frames the org's conviction. Sentence 2 bridges to Contra. Sentence 3 names the specific program or cohort.\n"
         "Hook examples:\n"
-        "  \"I noticed [Corp]'s recent push into [sector]. We are backing founders in that exact space at inception.\"\n"
-        "  \"Your work at [program/accelerator] is impressive. We are funding founders right before they reach that stage.\""
+        "  S1: \"[Corp]'s venture arm was built to back the founders that will redefine [their sector] from the outside.\"\n"
+        "  S2: \"That conviction is why our portfolios will overlap — Contra backs the technical founders building that infrastructure.\"\n"
+        "  S3: \"Your [program/cohort name] in [year] is exactly the kind of signal that made me reach out.\""
     ),
     "institutional_lp": (
         "ARCHETYPE: Endowment / foundation / institutional LP.\n"
-        "Address their mission or long-term mandate directly. Keep it professional but human.\n"
+        "Lead with their institution's mandate or long-term mission. Professional and evidence-first.\n"
+        "Sentence 1 frames the institution's conviction. Sentence 2 connects to Contra's thesis. Sentence 3 cites their specific program or allocation.\n"
         "Hook examples:\n"
-        "  \"I noticed [Institution]'s commitment to [mission/alt-allocation]. We are building a fund that shares that long-term view.\"\n"
-        "  \"Your work at [Institution] supporting first-time managers is exactly what the market needs right now.\""
+        "  S1: \"[Institution]'s alternatives program was built around a belief that the best returns come from backing underrepresented managers before they're obvious.\"\n"
+        "  S2: \"That's the mandate Contra was designed for.\"\n"
+        "  S3: \"Your commitment to [named program or manager] is the kind of track record that made me reach out.\""
     ),
     "asia_specialist": (
         "ARCHETYPE: Asia / SEA specialist.\n"
-        "Address their geographic focus directly without using jargon.\n"
+        "Lead with their regional conviction — what they believe about Asia-origin founders building globally.\n"
+        "Sentence 1 frames their regional thesis. Sentence 2 bridges to Contra. Sentence 3 names a specific regional investment or move.\n"
         "Hook examples:\n"
-        "  \"Your work at [Firm] building a portfolio in [SEA/Asia] shows a clear understanding of the region. We are backing those same founders as they build globally.\"\n"
-        "  \"I noticed your recent investments in [region]. We are making a very similar bet on those founders.\""
+        "  S1: \"[Firm]'s thesis has always been that the best global tech companies of the next decade are being built by founders from Asia.\"\n"
+        "  S2: \"Contra is the institutional form of that bet — specifically for Global Asian founders building B2B AI for the world.\"\n"
+        "  S3: \"Your investment in [named company] in [region] was exactly the kind of conviction that resonated with me.\""
     ),
     "technology_specialist": (
         "ARCHETYPE: AI / technology specialist.\n"
-        "Address their specific AI or tech investments directly. Keep it conversational.\n"
+        "Lead with their technology thesis or what they believe about the AI infrastructure buildout.\n"
+        "Sentence 1 frames their conviction about the tech wave. Sentence 2 bridges to Contra. Sentence 3 names a specific portfolio company.\n"
         "Hook examples:\n"
-        "  \"Your recent investment in [Portfolio co] caught my eye. We are backing similar founders right at the start.\"\n"
-        "  \"I noticed your focus on AI infrastructure. We are funding those exact founders at the pre-seed stage.\""
+        "  S1: \"Your thesis has consistently been that the real AI infrastructure winners are the ones building for enterprise teams, not consumer audiences.\"\n"
+        "  S2: \"That's precisely the space Contra is funding — Global Asian founders building B2B AI at the earliest stages.\"\n"
+        "  S3: \"Your investment in [Portfolio co] is the clearest signal that you'd find our portfolio interesting.\""
     ),
     "emerging_manager_specialist": (
         "ARCHETYPE: Emerging manager specialist.\n"
-        "Address their focus on new managers directly. Keep it simple and confident.\n"
+        "Lead with their conviction about why backing new managers at Fund I creates outsized returns.\n"
+        "Sentence 1 frames their emerging manager thesis. Sentence 2 bridges to why Contra fits. Sentence 3 cites a named fund they backed.\n"
         "Hook examples:\n"
-        "  \"I noticed that you recently backed [named Fund I]. We are building a new fund based on a decade of prior investments.\"\n"
-        "  \"Your work at [Firm] focusing on emerging managers is exactly why I am reaching out. We are raising a Fund I with a very clear track record.\""
+        "  S1: \"[Firm]'s program was built on the belief that Fund I managers with deep community roots consistently outperform the market.\"\n"
+        "  S2: \"That's the infrastructure Contra was designed around — a decade of community capital becoming an institutional fund.\"\n"
+        "  S3: \"Your commitment to [named Fund I] told me you'd find our track record worth a conversation.\""
     ),
     "generalist": (
         "ARCHETYPE: Generalist / unknown.\n"
-        "Lead with the single strongest SPECIFIC fact you found about them. Address them directly.\n"
+        "Lead with the single clearest signal of their investment thesis or identity, then bridge to Contra, then ground it in specifics.\n"
         "Hook examples:\n"
-        "  \"I noticed your recent work with [Specific fact]. It aligns perfectly with what we are building.\"\n"
-        "  \"Your work at [Firm] in [their angle] stood out to me. I wanted to share what we are working on.\""
+        "  S1: \"Your thesis around [their angle] has always been about backing founders that the consensus misses.\"\n"
+        "  S2: \"That's the same conviction Contra was built on — specifically for Global Asian technical founders.\"\n"
+        "  S3: \"[Specific fact from research] is exactly why I thought this would resonate.\""
     ),
 }
 _ARCHETYPE_PLAYBOOKS["unknown"] = _ARCHETYPE_PLAYBOOKS["generalist"]
@@ -190,34 +208,51 @@ DECISION TREE — run this before writing
 ═══════════════════════════════════════
 
 STEP 1: Read the OUTREACH APPROACH DIRECTIVE and the web research carefully.
-STEP 2: Ask yourself — do I have ONE specific, non-obvious fact about this person?
-  → Named fund they backed (not famous ones everyone knows)
-  → Specific company they founded or invested in recently
-  → A quote, interview, article, or public statement they made
-  → A program, cohort, or initiative they ran
-  → A recent (2023–2025) investment or move — not their most famous career highlight
+STEP 2: Identify TWO things separately:
+  (A) Their THESIS — what their fund, firm, or approach stands for. What kinds of founders do they back? What do they believe the market misses? What conviction built their career?
+  (B) A SPECIFIC FACT — a named fund they backed, a specific investment, a quote, an interview, a program they ran. Something recent and non-obvious (not their most famous career highlight).
 
-STEP 3a: IF YES — write a hook using that specific fact. Lead with it. Bridge it to Contra.
-STEP 3b: IF NO — do NOT fabricate a hook. Do not use their most famous investments
-  (e.g. do not mention Airtable/Figma for Gokul Rajaram — everyone does this).
-  Instead, lead with Contra's story confidently. Use the NO-HOOK template below.
+STEP 3a: IF you have both (A) and (B) — open with their thesis, bridge to Contra's shared conviction, then use the specific fact as corroborating evidence in sentence 3.
+STEP 3b: IF you have only (A) — open with their thesis, bridge to Contra, skip sentence 3.
+STEP 3c: IF you have neither — do NOT fabricate. Use the NO-HOOK template below, leading with Contra's story confidently.
+
+THE GOLDEN RULE: Their thesis always comes first. Specific facts are evidence, never the opener.
 
 ═══════════════════════
 EMAIL STRUCTURE
 ═══════════════════════
 
 WITH HOOK (specific fact found):
-  Line 1: One sentence. Specific fact about them. Must start with "I noticed", "I loved", "Your work at", or "Your recent investment in".
-  Line 2: One sentence. Bridge that specific fact to Contra VC and why it's relevant to them specifically.
-  Line 3: Factsheet CTA (verbatim): "Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions."
+
+  The opening is THREE sentences, in this exact order:
+
+  Sentence 1 — THEIR THESIS: What do they stand for? What did they build or back, and why?
+    Lead with their conviction, their fund thesis, or their investment identity.
+    Do NOT open with a dry research fact like "I noticed your fund closed $23M in August 2023."
+    Frame it as a belief or mission: "[Their Fund] was built to back [their conviction]."
+    or "Your thesis around [X] is exactly why I'm reaching out."
+    Do NOT mention "Contra" in this sentence.
+
+  Sentence 2 — THE THESIS BRIDGE: Connect their thesis directly to Contra's thesis.
+    One sentence that shows the shared conviction. Make the overlap explicit and human.
+    Example: "That conviction, that [overlooked founders / underestimated operators] are the real alpha, maps directly to what we've built at Contra."
+
+  Sentence 3 — THE SPECIFIC INTELLIGENCE: Now bring in the research detail as corroborating evidence.
+    Name the specific fact (fund size, date, named investment, quote) that proves you did the work.
+    This grounds the thesis bridge in reality. It's the "and I know this because..." sentence.
+    Example: "Your $23M inaugural fund, backed by 150+ angel investments, is exactly the kind of conviction-led track record that resonates."
+
+  Line 4 — CTA (verbatim): "Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions."
   [blank line]
   *Here's some more context on what we're building:*
   [STATIC PITCH — inserted verbatim by the system, do not rewrite it]
   [SIGN OFF]
 
-NO-HOOK template (no specific fact found):
-  Line 1: "I wanted to reach out because [one sentence on why this LP specifically fits Contra — use their archetype and location]."
-  Line 2: "We are raising Fund I at Contra VC, backing Global Asian founders building B2B AI companies at pre-seed and seed — and [one sentence on the specific gap or angle relevant to their profile]."
+NO-HOOK template (no specific fact found — or LP is too famous to hook specifically):
+  Sentence 1: Lead with their archetype identity and why it resonates with what Contra is building.
+    "[Their identity as X] is exactly the perspective we're looking to bring into Contra's LP base."
+  Sentence 2: One sentence on Contra's thesis and why it fits their lens.
+    "We are raising Fund I at Contra VC, backing Global Asian founders building B2B AI companies at pre-seed and seed — [one sentence on why this fits their specific angle]."
   Line 3: Factsheet CTA (verbatim): "Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions."
   [blank line]
   *Here's some more context on what we're building:*
@@ -231,26 +266,30 @@ RULES — non-negotiable
 1. No em dashes. Use commas, colons, or periods instead.
 2. Do not mention "Contra" in sentence 1.
 3. No bullet points in the email body.
-4. Do not use the LP's most famous or most-cited career highlight as the hook — if it's the first thing that comes up in a Google search, it is too generic. Find something specific and recent instead.
+4. Do not lead with a dry research fact (fund closed date, AUM figure, deal name) as sentence 1. Research details belong in sentence 3 as corroborating evidence, never as the opener. Do not use the LP's most famous or most-cited career highlight as the hook — if it's the first thing that comes up in a Google search, it is too generic. Find something specific and recent instead.
 5. For high-profile angels or prolific investors (100+ investments), their well-known portfolio companies are NOT specific facts. Find a recent investment, a public statement, or a lesser-known bet.
 6. The static pitch block is inserted verbatim after the opening — do not rewrite, summarize, or paraphrase it.
 7. Do not add any paragraph between the CTA line and the static pitch block.
 8. Sign off: sender name + "General Partner, Contra VC" only.
-9. Maximum 3 sentences in the opening before the CTA.
+9. Maximum 3 sentences in the opening before the CTA line.
 10. Do not fabricate facts. If you are uncertain whether something is true, use the NO-HOOK template instead.
 
 ═══════════════════════
 EXAMPLE — WITH HOOK (use this as your quality benchmark)
 ═══════════════════════
 
-RECIPIENT: Suresh Madhuvarsu (founder_lp / corporate_investor)
-HOOK AVAILABLE: June 2022 Product10x interview on SaaS co-creation model
+RECIPIENT: Ihar Mahaniok (emerging_manager_specialist — runs Geek Ventures, $23M fund backing immigrant founders)
+RESEARCH: Geek Ventures closed $23M Fund I in August 2023, focus on pre-seed immigrant founders, 150+ angel investments, Ihar has spoken publicly about immigrant founder psychology as a competitive advantage.
 
 GOOD EMAIL:
 ---
-Hi Suresh,
+Hi Ihar,
 
-I noticed your June 2022 interview on Product10x's SaaS startup co-creation model, where you emphasized rapid product-market fit and long-term mentorship. That hands-on operator approach is exactly what we're building at Contra for pre-seed AI founders.
+Geek Ventures was built to back bold, brilliant immigrant entrepreneurs. The same founders most institutional capital overlooks.
+
+That conviction maps directly to our thesis at Contra: we believe first-generation, technical-first founders from Google, Meta, and OpenAI are building the next generation of enterprise AI, yet no institutional fund was designed for them.
+
+Your $23M inaugural fund, backed by 150+ angel investments and a decade of deep founder psychology insight, is exactly the kind of track record that tells me you'd find our approach interesting.
 
 Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions.
 
@@ -262,7 +301,15 @@ Aabhas Khanna
 General Partner, Contra VC
 ---
 
-WHY IT WORKS: Names a specific interview (not just "your work at Product10x"), names the exact concept discussed (co-creation, PMF, mentorship), bridges to Contra with one clear overlap point. Short. Human. No jargon.
+WHY IT WORKS: Opens with THEIR thesis (immigrant founders, overlooked capital). Bridges to Contra's shared belief (same conviction, different lens). Then uses the specific research detail ($23M, 150+ angels) as evidence — not as the opener. Short. Human. No jargon.
+
+BAD VERSION (do NOT do this):
+---
+Hi Ihar,
+
+I noticed that Geek Ventures closed its $23M inaugural fund in August 2023 focused on pre-seed immigrant founders.
+---
+WHY IT'S BAD: Opens with a dry research fact. Sounds like a data dump, not a thesis conversation.
 
 ═══════════════════════
 EXAMPLE — NO-HOOK (high-profile LP, no specific recent fact)
@@ -275,7 +322,7 @@ GOOD EMAIL:
 ---
 Hi Gokul,
 
-I wanted to reach out because your background as a founder and prolific early-stage angel puts you exactly in the community we're building Contra around.
+Your background as a founder and prolific early-stage angel puts you exactly in the community we're building Contra around.
 
 We are raising Fund I at Contra VC, backing Global Asian founders building B2B AI companies at pre-seed and seed — the first-generation technical operators coming out of Google, Meta, and OpenAI who don't fit the archetype most funds optimize for.
 
@@ -289,7 +336,7 @@ Aabhas Khanna
 General Partner, Contra VC
 ---
 
-WHY IT WORKS: Doesn't pretend to have a specific hook when the only available facts are too famous. Leads with Contra confidently. Still relevant to his founder/angel identity.
+WHY IT WORKS: Leads with his identity as a founder/operator. Doesn't pretend to have a specific hook when the only available facts are too famous. Still personal and relevant.
 """
 
 
@@ -335,12 +382,14 @@ BODY:
 {draft.body}
 
 CRITERIA:
-1. Does the email read as a single, cohesive narrative? If it reads like an abrupt hook followed by a disconnected pitch deck, output REVISE.
-2. Are the core Contra metrics included ($30M Fund I, $500-750K checks, $70M deployed via MyAsiaVC, 50% Asian founders)? If any are missing, output REVISE.
-3. Are there any em-dashes (—) or hyphens (-) in the personalized opening paragraph? (There MUST NOT BE ANY).
-4. Does it use jargon like "alpha", "lens", "deal flow"? (It shouldn't).
+1. Does sentence 1 open with THEIR THESIS — what they stand for, what they built, their conviction — NOT a dry research fact (fund size, closing date, deal name)? If it opens with "I noticed that [Firm] closed its $Xm fund in [Year]..." or any variant that leads with a data point rather than a thesis framing, output REVISE.
+2. Does sentence 2 bridge their thesis to Contra's thesis explicitly? If the thesis connection is missing or vague, output REVISE.
+3. Does sentence 3 use specific research intelligence as corroborating evidence (fund size, named investment, quote)? If the specific facts appear in sentence 1 instead, output REVISE.
+4. Are the core Contra metrics included in the static pitch ($30M Fund I, $500-750K checks, $70M deployed via MyAsiaVC, 50% Asian founders)? If any are missing from the body as a whole, output REVISE.
+5. Are there any em-dashes (—) in the personalized opening paragraph? (There MUST NOT BE ANY).
+6. Does it use jargon like "alpha", "lens", "deal flow", "archetype"? (It shouldn't).
 
-If it violates ANY of these, or is generic, output REVISE and explain exactly why.
+If it violates ANY of these, output REVISE and explain exactly which criterion failed and what the fix is.
 Otherwise, output PASS.
 """
         try:
@@ -386,7 +435,7 @@ Otherwise, output PASS.
     )
 
 
-def _outreach_model() -> str:
+def _outreach_model() -> str
     return os.environ.get("OUTREACH_LLM_MODEL", "").strip() or "gpt-4o"
 
 
@@ -573,47 +622,56 @@ def _build_prompt(
     lp_commitments = (dossier or {}).get("lp_commitments") or []
     _hook_axis_map = {
         "fund_of_funds": (
-            "Lead with a SPECIFIC NAMED FUND they backed or their manager selection track record. "
-            "Do NOT lead with their AI/tech portfolio exposure — that was a gate qualifier, not their identity."
+            "Sentence 1: Frame THEIR THESIS as a manager selector — what do they believe about which Fund I managers win? "
+            "Do NOT open with a named fund as a data point; open with the conviction that led them to back it. "
+            "Sentence 3: Then name the specific fund as corroborating evidence."
         ),
         "family_office": (
-            "Lead with a SPECIFIC DEAL, COMPANY, or FOCUS AREA from their family office activity. "
-            "Their identity is as a capital allocator, not a tech investor."
+            "Sentence 1: Frame their CAPITAL ALLOCATOR IDENTITY — what do they stand for as a family office? "
+            "Sentence 3: Then name a specific deal or focus area from the research as the evidence."
         ),
         "founder_lp": (
-            "Lead with something THEY BUILT OR BACKED as a founder or operator. "
-            "Peer tone. Their journey as a builder is the hook — not their LP activity."
+            "Sentence 1: Frame WHAT THEY BUILT OR WHAT DRIVES THEIR ANGEL THESIS — their builder identity. "
+            "Peer tone. Do not open with 'I noticed your investment in X' — open with what they built or believe. "
+            "Sentence 3: Then name the specific company or investment as evidence."
         ),
         "emerging_manager_specialist": (
-            "Lead with their TRACK RECORD OF BACKING NEW MANAGERS specifically. "
-            "Named funds they anchored if available. This is their primary identity."
+            "Sentence 1: Frame their CONVICTION ABOUT EMERGING MANAGERS — why do they believe Fund I managers outperform? "
+            "Their identity is as someone who finds managers others miss. "
+            "Sentence 3: Then name a specific fund they anchored as evidence."
         ),
         "corporate_investor": (
-            "Lead with their ORGANIZATION'S SPECIFIC PROGRAM or recent strategic move. "
-            "Not generic accelerator language — name the actual program or cohort."
+            "Sentence 1: Frame their ORGANIZATION'S MISSION or what their program is trying to achieve. "
+            "Not generic 'you run an accelerator' — frame the conviction behind the program. "
+            "Sentence 3: Then name the specific program, cohort, or recent strategic move."
         ),
         "institutional_lp": (
-            "Lead with their INSTITUTION'S MANDATE or known alternatives allocation. "
-            "Professional and evidence-first. No startup language."
+            "Sentence 1: Frame their INSTITUTION'S MANDATE or long-term thesis for alternatives. "
+            "Professional and mission-grounded. "
+            "Sentence 3: Then cite their specific program or known allocation as evidence."
         ),
         "asia_specialist": (
-            "Lead with their SPECIFIC REGIONAL INVESTMENT or portfolio company in Asia/SEA. "
-            "They know the region — acknowledge it with specificity."
+            "Sentence 1: Frame their REGIONAL CONVICTION — what do they believe about Asia-origin founders building globally? "
+            "They know the region; acknowledge the thesis, not just the geography. "
+            "Sentence 3: Then name a specific regional investment as evidence."
         ),
         "technology_specialist": (
-            "Lead with a SPECIFIC PORTFOLIO COMPANY they backed, not the generic 'AI focus'. "
-            "The hook must name something real from the research."
+            "Sentence 1: Frame their TECHNOLOGY THESIS — what do they believe about where the AI infrastructure buildout is heading? "
+            "Sentence 3: Then name a specific portfolio company as corroborating evidence."
         ),
         "generalist": (
-            "Lead with the single most SPECIFIC AND UNIQUE fact about them from the web research. "
-            "If no specific fact exists, say so — do not fabricate a hook."
+            "Sentence 1: Frame the clearest signal of their INVESTMENT IDENTITY or thesis from the research. "
+            "If no clear thesis is available, lead with their archetype identity. "
+            "Sentence 3: Then name the specific fact from research as evidence."
         ),
     }
     hook_axis = _hook_axis_map.get(archetype, _hook_axis_map["generalist"])
     if lp_commitments:
         hook_axis = (
             f"STRONGEST AVAILABLE SIGNAL: Named LP fund commitments on record: {lp_commitments[:3]}. "
-            f"Lead with one of these named funds — this is the most specific hook possible."
+            f"Do NOT open with these fund names as a data point. Instead, open with the THESIS that "
+            f"led this LP to back those funds — their belief about what makes an emerging manager worth backing. "
+            f"Then bridge to Contra's thesis. Then use one of the named fund commitments in sentence 3 as corroborating evidence."
         )
 
     approach_directive = (
