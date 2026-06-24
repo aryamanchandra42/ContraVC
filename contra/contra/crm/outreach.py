@@ -180,49 +180,116 @@ def _resolve_archetype(lead: Dict[str, Any], dossier: Optional[Dict[str, Any]]) 
             return key
     return "generalist"
 
-_SYSTEM = f"""You write first-touch LP outreach emails for a VC fund GP.
+_SYSTEM = """
+You are a GP writing cold LP outreach emails for Contra VC (Fund I, $30M, AI & Robotics, pre-seed/seed, Global Asian founders).
 
-FUND STORY INGREDIENTS:
-{_CONTRA_STORY_INGREDIENTS}
+Your job is to write a short, human, specific cold email. The goal is one reply. Not to impress. Not to explain everything. One reply.
 
-═══════════════════════════════════════════════════════
-COLD EMAIL PRINCIPLES (DYNAMIC WEAVING):
-1. The Story Arc: Your job is to weave a single, cohesive narrative. Do NOT just drop an abrupt quote followed by a copy-pasted pitch. Connect THEIR world to OUR world smoothly.
-2. High Info (Deep Research Found): Start with a specific signal from the research (a named portfolio co, a specific thesis quote, etc.). Then, explicitly bridge *why* that specific fact makes them a fit for the Contra VC story. Weave our track record and thesis in as the natural next step.
-3. Low Info (Sparse Research): If you only have generic tags (like "invests in AI"), use a brief, polite, human opener. Then, lean heavily into telling the Contra story—lead with the massive data point (50% of US tech founders are Asian) or our track record ($70M deployed via MyAsiaVC). Talk more about us than them.
-4. Voice: Write like a confident founder-GP speaking peer-to-peer. Simple, declarative sentences. No corporate VC jargon.
+═══════════════════════════════════════
+DECISION TREE — run this before writing
+═══════════════════════════════════════
 
-═══════════════════════════════════════════════════════
-SUBJECT LINE STRATEGY:
-Max 12 words. Pick the format that produces the most specific subject:
-FORMAT A (Specificity hook): "[Org short name] + [named thing from their world] → Contra"
-FORMAT B (Observation): A 6–10 word insight tied to their focus.
-FORMAT C (Bridge): "From [Org] to Contra — [specific bridge]"
+STEP 1: Read the OUTREACH APPROACH DIRECTIVE and the web research carefully.
+STEP 2: Ask yourself — do I have ONE specific, non-obvious fact about this person?
+  → Named fund they backed (not famous ones everyone knows)
+  → Specific company they founded or invested in recently
+  → A quote, interview, article, or public statement they made
+  → A program, cohort, or initiative they ran
+  → A recent (2023–2025) investment or move — not their most famous career highlight
 
-═══════════════════════════════════════════════════════
-EMAIL STRUCTURE:
+STEP 3a: IF YES — write a hook using that specific fact. Lead with it. Bridge it to Contra.
+STEP 3b: IF NO — do NOT fabricate a hook. Do not use their most famous investments
+  (e.g. do not mention Airtable/Figma for Gokul Rajaram — everyone does this).
+  Instead, lead with Contra's story confidently. Use the NO-HOOK template below.
 
-  [SUBJECT]
+═══════════════════════
+EMAIL STRUCTURE
+═══════════════════════
 
-  Hi [First Name] / Name,
+WITH HOOK (specific fact found):
+  Line 1: One sentence. Specific fact about them. Must start with "I noticed", "I loved", "Your work at", or "Your recent investment in".
+  Line 2: One sentence. Bridge that specific fact to Contra VC and why it's relevant to them specifically.
+  Line 3: Factsheet CTA (verbatim): "Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions."
+  [blank line]
+  *Here's some more context on what we're building:*
+  [STATIC PITCH — inserted verbatim by the system, do not rewrite it]
+  [SIGN OFF]
 
-  [THE BODY — 3-4 short paragraphs maximum]
-  - Smoothly weave their context (if any) with the Contra story ingredients.
-  - MUST include the mandatory data points ($30M, $70M deployed, 300+ companies, 50% Asian founders), but they should flow naturally as part of the narrative.
-  
-  [THE ASK VERBATIM]
-  Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions.
+NO-HOOK template (no specific fact found):
+  Line 1: "I wanted to reach out because [one sentence on why this LP specifically fits Contra — use their archetype and location]."
+  Line 2: "We are raising Fund I at Contra VC, backing Global Asian founders building B2B AI companies at pre-seed and seed — and [one sentence on the specific gap or angle relevant to their profile]."
+  Line 3: Factsheet CTA (verbatim): "Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions."
+  [blank line]
+  *Here's some more context on what we're building:*
+  [STATIC PITCH — inserted verbatim by the system, do not rewrite it]
+  [SIGN OFF]
 
-  [Sender name]
-  General Partner, Contra VC
+═══════════════════════
+RULES — non-negotiable
+═══════════════════════
 
-═══════════════════════════════════════════════════════
-HARD RULES:
-- NO ABRUPT QUOTES. Connect their facts to our thesis. If you mention they invest in X, explain how that connects to Contra backing Y.
-- You MUST weave in the core metrics ($30M Fund I, $500-750K checks, $70M deployed via MyAsiaVC, 50% Asian founders data point).
-- NO EM DASHES OR HYPHENS in the opening paragraph. Use periods to connect thoughts.
-- NEVER fabricate facts.
-- Do not use jargon (e.g., "alpha", "deal flow", "lens").
+1. No em dashes. Use commas, colons, or periods instead.
+2. Do not mention "Contra" in sentence 1.
+3. No bullet points in the email body.
+4. Do not use the LP's most famous or most-cited career highlight as the hook — if it's the first thing that comes up in a Google search, it is too generic. Find something specific and recent instead.
+5. For high-profile angels or prolific investors (100+ investments), their well-known portfolio companies are NOT specific facts. Find a recent investment, a public statement, or a lesser-known bet.
+6. The static pitch block is inserted verbatim after the opening — do not rewrite, summarize, or paraphrase it.
+7. Do not add any paragraph between the CTA line and the static pitch block.
+8. Sign off: sender name + "General Partner, Contra VC" only.
+9. Maximum 3 sentences in the opening before the CTA.
+10. Do not fabricate facts. If you are uncertain whether something is true, use the NO-HOOK template instead.
+
+═══════════════════════
+EXAMPLE — WITH HOOK (use this as your quality benchmark)
+═══════════════════════
+
+RECIPIENT: Suresh Madhuvarsu (founder_lp / corporate_investor)
+HOOK AVAILABLE: June 2022 Product10x interview on SaaS co-creation model
+
+GOOD EMAIL:
+---
+Hi Suresh,
+
+I noticed your June 2022 interview on Product10x's SaaS startup co-creation model, where you emphasized rapid product-market fit and long-term mentorship. That hands-on operator approach is exactly what we're building at Contra for pre-seed AI founders.
+
+Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions.
+
+*Here's some more context on what we're building:*
+
+[STATIC PITCH]
+
+Aabhas Khanna
+General Partner, Contra VC
+---
+
+WHY IT WORKS: Names a specific interview (not just "your work at Product10x"), names the exact concept discussed (co-creation, PMF, mentorship), bridges to Contra with one clear overlap point. Short. Human. No jargon.
+
+═══════════════════════
+EXAMPLE — NO-HOOK (high-profile LP, no specific recent fact)
+═══════════════════════
+
+RECIPIENT: Gokul Rajaram (founder_lp, 700+ investments)
+HOOK AVAILABLE: Only famous investments (Airtable, Figma, DoorDash) — too generic
+
+GOOD EMAIL:
+---
+Hi Gokul,
+
+I wanted to reach out because your background as a founder and prolific early-stage angel puts you exactly in the community we're building Contra around.
+
+We are raising Fund I at Contra VC, backing Global Asian founders building B2B AI companies at pre-seed and seed — the first-generation technical operators coming out of Google, Meta, and OpenAI who don't fit the archetype most funds optimize for.
+
+Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions.
+
+*Here's some more context on what we're building:*
+
+[STATIC PITCH]
+
+Aabhas Khanna
+General Partner, Contra VC
+---
+
+WHY IT WORKS: Doesn't pretend to have a specific hook when the only available facts are too famous. Leads with Contra confidently. Still relevant to his founder/angel identity.
 """
 
 
@@ -618,22 +685,15 @@ def _build_prompt(
         parts.append(f"\nADDITIONAL SENDER INSTRUCTIONS: {extra_instructions[:400]}")
 
     parts.append(
-        f"\n=== CONTRA STORY INGREDIENTS (Weave these metrics naturally) ===\n{_CONTRA_STORY_INGREDIENTS}"
-    )
-    parts.append(
         "\n=== YOUR TASK ===\n"
         "1. SUBJECT: Evaluate all three subject line formats (A, B, C) from the system prompt. "
         "Pick the format that produces the most specific and compelling subject for THIS recipient. "
         "Return only the winning subject and which format you used.\n\n"
-        "2. THE HOOK (most important): Write a catchy opening of 1–2 short sentences, ~300 characters "
-        "or less, following the ARCHETYPE PLAYBOOK above. Lead with the single strongest specific fact "
-        "about this recipient from the web research / signals. It must be impossible to send to anyone "
-        "else. You MUST start the first sentence of the hook with exactly one of these phrases: 'I noticed', 'I loved', 'Your work at', or 'Your recent investment'. DO NOT use any dashes or hyphens.\n\n"
-        f"3. FULL BODY: Assemble the complete email — start with 'Hi {first_name},', then dynamically weave the hook and the Contra story ingredients into 3-4 short paragraphs, ending with the verbatim factsheet sentence and sign-off.\n\n"
+        "2. THE HOOK (most important): Determine if you have a specific, recent, non-obvious fact about this person. If YES, write a specific 2-sentence opening. If NO (or if they are too famous), use the NO-HOOK template.\n\n"
+        f"3. FULL BODY: Assemble the complete email — start with 'Hi {first_name},', then your opening, the verbatim factsheet sentence, the '*Here's some more context on what we're building:*' line, the static pitch verbatim, and the sign-off.\n\n"
         "4. PERSONALIZATION POINTS: List the specific facts you used as hooks (be precise — "
         "e.g. 'Named fund: Sequoia Heritage', not 'portfolio signals').\n\n"
-        "Return subject, subject_format, body (full email from 'Hi [First Name],' through the "
-        "signature), and personalization_points."
+        "Return subject, subject_format, body, and personalization_points."
     )
     return "\n".join(parts)
 
@@ -649,6 +709,68 @@ def _deep_research_for_lead(
     """
     name = lead["investor_name"]
     known_context = lead.get('investor_details') or ''
+    
+    # Detect high-profile / prolific investors — for these, generic queries
+    # return their most-famous investments which are too well-known to hook on.
+    # Instead search for recent, specific, lesser-known activity.
+    prominence_keywords = ["techstars", "yc", "ycombinator", "500 startups", "sequoia",
+                           "a16z", "accel", "benchmark", "google", "meta", "coinbase",
+                           "doordash", "stripe", "airbnb"]
+    is_prominent = any(k in (lead.get("investor_details") or "").lower() or
+                       k in (lead.get("gate_summary") or "").lower()
+                       for k in prominence_keywords)
+
+    archetype = _resolve_archetype(lead, dossier)
+
+    if archetype == "founder_lp":
+        if is_prominent:
+            queries = [
+                f"{name} angel investment 2024 2025",
+                f"{name} recent portfolio company backed",
+                f"{name} interview podcast statement 2024",
+            ]
+        else:
+            queries = [
+                f"{name} founder company built",
+                f"{name} angel investment portfolio",
+                f"{name} operator background",
+            ]
+    elif archetype == "fund_of_funds":
+        queries = [
+            f"{name} emerging manager fund backed",
+            f"{name} fund commitments LP investments",
+            f"{name} fund of funds portfolio 2023 2024",
+        ]
+    elif archetype == "family_office":
+        queries = [
+            f"{name} family office investment portfolio",
+            f"{name} direct investment company backed",
+            f"{name} venture investment thesis",
+        ]
+    elif archetype == "corporate_investor":
+        queries = [
+            f"{name} accelerator program cohort 2024",
+            f"{name} corporate venture investment",
+            f"{name} strategic partnership portfolio",
+        ]
+    elif archetype == "emerging_manager_specialist":
+        queries = [
+            f"{name} emerging manager fund backed anchored",
+            f"{name} first time fund investment 2023 2024",
+            f"{name} fund I fund II LP commitment",
+        ]
+    elif archetype == "institutional_lp":
+        queries = [
+            f"{name} endowment foundation venture allocation",
+            f"{name} alternatives investment program",
+            f"{name} emerging manager program",
+        ]
+    else:
+        queries = [
+            f"{name} venture investment recent 2024 2025",
+            f"{name} fund LP portfolio",
+            f"{name} investor background",
+        ]
     
     # Try the high-quality adaptive OpenAI research first
     if os.environ.get("OPENAI_API_KEY"):
@@ -773,13 +895,15 @@ def generate_outreach_draft(
 
     # 5. Critique and Revise Loop
     draft = _critique_and_revise(llm, draft, prompt_str)
+    
+    deep_research_used = bool(fresh_research.strip())
 
     draft_id = str(uuid.uuid4())
     personalization_payload = {
         "points": draft.personalization_points,
         "subject_format": draft.subject_format or "",
         "archetype": archetype,
-        "deep_research_used": bool(fresh_research.strip()),
+        "deep_research_used": deep_research_used,
     }
     con.execute(
         """
@@ -808,7 +932,7 @@ def generate_outreach_draft(
         "subject": draft.subject,
         "subject_format": draft.subject_format or "",
         "archetype": archetype,
-        "deep_research_used": bool(fresh_research.strip()),
+        "deep_research_used": deep_research_used,
         "body": draft.body,
         "tone": tone,
         "model": model,
