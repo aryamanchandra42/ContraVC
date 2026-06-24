@@ -45,12 +45,16 @@ _FUND_CONTEXT = (
     "alongside 6,000+ LPs over the past decade."
 )
 
-_STATIC_PITCH = """\
-50% of new US tech founders are Asian, yet no institutional fund was built explicitly for these technical-first, first-generation operators. Contra VC is a $30M Fund I designed to fill that exact gap, backing Global Asian founders building B2B AI companies at the pre-seed and seed stages.
-
-My co-GP Sajid and I aren't new to this. Over the past decade, through MyAsiaVC, we've deployed $70M+ across 300+ companies alongside 6,000+ LPs. Contra VC is the institutional form of that edge, giving us the infrastructure to lead rounds ($500-750K checks) and back underestimated founders at inception.
-
-The founders we back are building in AI infrastructure, vertical automation, and enterprise software. They don't fit the archetype most funds optimise for — which is precisely where the alpha is."""
+_CONTRA_STORY_INGREDIENTS = """\
+MANDATORY DATA POINTS AND FEATURES (must be included exactly as facts, though you can weave them naturally into the narrative):
+- Contra VC is a $30M Fund I.
+- We invest $500-750K at pre-seed and seed stages.
+- Target portfolio is ~30 companies with concentrated follow-on.
+- The Thesis: 50% of new US tech founders are Asian (a share rising every YC batch), yet no institutional fund was built explicitly for these technical-first, first-generation operators (especially ex-Google, Meta, OpenAI).
+- The Focus: Global Asian founders building B2B AI companies (AI infrastructure, vertical automation, enterprise software) for the world.
+- The Track Record: Co-GPs Sajid and I have deployed $70M+ across 300+ companies alongside 6,000+ LPs over the past decade through MyAsiaVC.
+- The Edge: Contra VC is the institutional form of that community, letting us lead rounds and back underestimated founders at inception where they don't fit standard fund archetypes.
+"""
 
 
 _DEFAULT_SENDER = "Aabhas Khanna"
@@ -178,14 +182,15 @@ def _resolve_archetype(lead: Dict[str, Any], dossier: Optional[Dict[str, Any]]) 
 
 _SYSTEM = f"""You write first-touch LP outreach emails for a VC fund GP.
 
-FUND: {_FUND_CONTEXT}
+FUND STORY INGREDIENTS:
+{_CONTRA_STORY_INGREDIENTS}
 
 ═══════════════════════════════════════════════════════
-COLD EMAIL PRINCIPLES:
-1. Signal: Identify a real-time event or specific fact (e.g., named portfolio co, thesis quote, LP commitment).
-2. Opener: One sentence naming the signal, proving you did research. Address them DIRECTLY ("You", "Your").
-3. Hook: Connect the signal to Contra VC's thesis in one short sentence.
-4. Short: The personalized section is exactly 2 sentences before the CTA.
+COLD EMAIL PRINCIPLES (DYNAMIC WEAVING):
+1. The Story Arc: Your job is to weave a single, cohesive narrative. Do NOT just drop an abrupt quote followed by a copy-pasted pitch. Connect THEIR world to OUR world smoothly.
+2. High Info (Deep Research Found): Start with a specific signal from the research (a named portfolio co, a specific thesis quote, etc.). Then, explicitly bridge *why* that specific fact makes them a fit for the Contra VC story. Weave our track record and thesis in as the natural next step.
+3. Low Info (Sparse Research): If you only have generic tags (like "invests in AI"), use a brief, polite, human opener. Then, lean heavily into telling the Contra story—lead with the massive data point (50% of US tech founders are Asian) or our track record ($70M deployed via MyAsiaVC). Talk more about us than them.
+4. Voice: Write like a confident founder-GP speaking peer-to-peer. Simple, declarative sentences. No corporate VC jargon.
 
 ═══════════════════════════════════════════════════════
 SUBJECT LINE STRATEGY:
@@ -201,30 +206,20 @@ EMAIL STRUCTURE:
 
   Hi [First Name] / Name,
 
-  [PERSONALIZED OPENING — 2 sentences maximum]
-  Sentence 1: The Signal. State a specific fact about them or their work.
-  Sentence 2: The Hook. A brief bridge connecting that fact to Contra.
-
-  [STATIC PITCH VERBATIM]
-  Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions.
+  [THE BODY — 3-4 short paragraphs maximum]
+  - Smoothly weave their context (if any) with the Contra story ingredients.
+  - MUST include the mandatory data points ($30M, $70M deployed, 300+ companies, 50% Asian founders), but they should flow naturally as part of the narrative.
   
-  *Here's some more context on what we're building:*
-
-{_STATIC_PITCH}
-
-  Would love to chat if you'd like to know more!
+  [THE ASK VERBATIM]
+  Our Fund I factsheet is here: https://contravcfactsheet.netlify.app/ and I'd love to find time for a call if it sparks any questions.
 
   [Sender name]
   General Partner, Contra VC
 
 ═══════════════════════════════════════════════════════
-EXAMPLES OF GOOD OPENINGS:
-- "Your recent investment in Figma stood out to me. We are backing similar B2B founders right at inception."
-- "I noticed you lead the emerging manager program at Accolade. We are building the exact Global Asian allocation your LPs are likely asking for."
-- "The thesis you published on AI infrastructure is spot on. We've spent a decade building the network to back those founders."
-
 HARD RULES:
-- Lead with a specific signal from the research/insights. Do NOT restate generic VC/AI tags.
+- NO ABRUPT QUOTES. Connect their facts to our thesis. If you mention they invest in X, explain how that connects to Contra backing Y.
+- You MUST weave in the core metrics ($30M Fund I, $500-750K checks, $70M deployed via MyAsiaVC, 50% Asian founders data point).
 - NO EM DASHES OR HYPHENS in the opening paragraph. Use periods to connect thoughts.
 - NEVER fabricate facts.
 - Do not use jargon (e.g., "alpha", "deal flow", "lens").
@@ -273,8 +268,8 @@ BODY:
 {draft.body}
 
 CRITERIA:
-1. Does the first sentence lead with a SPECIFIC, named fact from the research (a specific investment, quote, firm, etc.)? If it just says "I noticed your investments in AI" or "I saw you back founders", it is GENERIC.
-2. Does the first sentence start with "Contra", "We", "I wanted to", or "I hope"? (It shouldn't).
+1. Does the email read as a single, cohesive narrative? If it reads like an abrupt hook followed by a disconnected pitch deck, output REVISE.
+2. Are the core Contra metrics included ($30M Fund I, $500-750K checks, $70M deployed via MyAsiaVC, 50% Asian founders)? If any are missing, output REVISE.
 3. Are there any em-dashes (—) or hyphens (-) in the personalized opening paragraph? (There MUST NOT BE ANY).
 4. Does it use jargon like "alpha", "lens", "deal flow"? (It shouldn't).
 
@@ -378,7 +373,7 @@ def _extract_insight_angles(
     Run a fast extraction pass over raw research to synthesize 3 concrete personalization angles.
     This prevents the writer from merely restating raw facts without insight.
     """
-    if not research_text.strip() and not dossier_text.strip():
+    if not (research_text and research_text.strip()) and not (dossier_text and dossier_text.strip()):
         return "(No research text available for insight extraction)"
         
     system = "You are a senior VC analyst preparing a partner for a cold outreach email."
@@ -568,9 +563,9 @@ def _build_prompt(
     # Combine fresh deep research with the stored dossier research notes (generous budget)
     stored_research = (dossier or {}).get("research_notes", "") or ""
     research_blocks: list[str] = []
-    if fresh_research.strip():
+    if fresh_research and fresh_research.strip():
         research_blocks.append(f"FRESH DEEP WEB RESEARCH (run just now):\n{fresh_research.strip()[:6000]}")
-    if stored_research.strip():
+    if stored_research and stored_research.strip():
         research_blocks.append(f"STORED DOSSIER RESEARCH:\n{stored_research.strip()[:3000]}")
     research_section = "\n\n".join(research_blocks) if research_blocks else "(no web research available)"
 
@@ -623,7 +618,7 @@ def _build_prompt(
         parts.append(f"\nADDITIONAL SENDER INSTRUCTIONS: {extra_instructions[:400]}")
 
     parts.append(
-        f"\n=== STATIC PITCH — copy these five paragraphs verbatim into the body, word-for-word ===\n{_STATIC_PITCH}"
+        f"\n=== CONTRA STORY INGREDIENTS (Weave these metrics naturally) ===\n{_CONTRA_STORY_INGREDIENTS}"
     )
     parts.append(
         "\n=== YOUR TASK ===\n"
@@ -634,9 +629,7 @@ def _build_prompt(
         "or less, following the ARCHETYPE PLAYBOOK above. Lead with the single strongest specific fact "
         "about this recipient from the web research / signals. It must be impossible to send to anyone "
         "else. You MUST start the first sentence of the hook with exactly one of these phrases: 'I noticed', 'I loved', 'Your work at', or 'Your recent investment'. DO NOT use any dashes or hyphens.\n\n"
-        f"3. FULL BODY: Assemble the complete email — start with 'Hi {first_name},', then the hook, the verbatim factsheet sentence, the "
-        "'*Here's some more context on what we're building:*' line, all five static paragraphs verbatim, "
-        "then the sign-off.\n\n"
+        f"3. FULL BODY: Assemble the complete email — start with 'Hi {first_name},', then dynamically weave the hook and the Contra story ingredients into 3-4 short paragraphs, ending with the verbatim factsheet sentence and sign-off.\n\n"
         "4. PERSONALIZATION POINTS: List the specific facts you used as hooks (be precise — "
         "e.g. 'Named fund: Sequoia Heritage', not 'portfolio signals').\n\n"
         "Return subject, subject_format, body (full email from 'Hi [First Name],' through the "
@@ -658,57 +651,20 @@ def _deep_research_for_lead(
     known_context = lead.get('investor_details') or ''
     
     # Try the high-quality adaptive OpenAI research first
-    try:
-        from agents.research.openai_research import openai_lp_outreach_research
-        notes, urls = openai_lp_outreach_research(
-            name=name,
-            archetype=archetype,
-            known_context=known_context,
-        )
-        if notes:
-            return notes
-    except Exception as exc:
-        logger.info("OpenAI outreach research unavailable or failed for '%s': %s", name, exc)
-
-    # Fallback to Tavily
-    try:
-        from agents.research.web_search import SearchUnavailable, get_search_provider
-    except Exception as exc:
-        logger.info("Tavily unavailable (import): %s", exc)
-        return ""
-
-    ltype = (lead.get("investor_type") or "").strip()
-    location = (lead.get("investor_location") or "").strip()
-
-    # Build identity-first queries — who they are as an allocator, not their AI/tech signals
-    queries = [f"{name} venture capital fund LP investment"]
-    if ltype:
-        queries.append(f"{name} {ltype} portfolio investments")
-    if location:
-        queries.append(f"{name} {location} investor")
-
-    results: list[str] = []
-    try:
-        provider = get_search_provider()
-    except Exception as exc:
-        logger.info("Search provider unavailable: %s", exc)
-        return ""
-
-    for q in queries:
+    if os.environ.get("OPENAI_API_KEY"):
         try:
-            response = provider.search(q, max_results=4)
-            for h in (response.results or []):
-                snippet = h.raw_content or h.snippet or ""
-                url = h.url or ""
-                if snippet:
-                    results.append(f"[{url}] {snippet[:500]}")
-        except SearchUnavailable:
-            logger.info("Tavily unavailable for '%s'", name)
-            break
+            from agents.research.openai_research import openai_lp_outreach_research
+            notes, urls = openai_lp_outreach_research(
+                name=name,
+                archetype=archetype,
+                known_context=known_context,
+            )
+            if notes:
+                return notes
         except Exception as exc:
-            logger.info("Tavily query failed for '%s': %s", name, exc)
+            logger.info("OpenAI outreach research unavailable or failed for '%s': %s", name, exc)
 
-    return "\n\n".join(results[:8]) if results else ""
+    return ""
 
 
 def generate_outreach_draft(
@@ -730,16 +686,25 @@ def generate_outreach_draft(
     dossier = get_dossier(con, lead["investor_name"])
     archetype = _resolve_archetype(lead, dossier)
 
+    def _get_string_value(val: Any) -> str:
+        if val is None:
+            return ""
+        if isinstance(val, str):
+            return val
+        return str(val)
+
     # Always run a fresh, cached deep-research pass so the hook is built on
     # current, specific facts rather than only stale DB fields.
-    fresh_research = _deep_research_for_lead(lead, dossier, archetype)
+    fresh_research = _get_string_value(_deep_research_for_lead(lead, dossier, archetype))
 
-    stored_research = (dossier or {}).get("research_notes", "") or ""
+    stored_research = _get_string_value((dossier or {}).get("research_notes", ""))
+    investor_details = _get_string_value(lead.get("investor_details", ""))
+    
     has_research = bool(fresh_research.strip()) or bool(stored_research.strip())
     has_signals = bool(
         ((dossier or {}).get("lp_commitments") or [])
         or (lead.get("appetite_json") or {}).get("allocation_evidence")
-        or lead.get("gate_summary", "").strip()
+        or _get_string_value(lead.get("gate_summary")).strip()
     )
 
     if not has_research and not has_signals:
@@ -779,15 +744,16 @@ def generate_outreach_draft(
         # Fall back to the default configured provider (e.g. Haiku / OpenAI)
         llm = get_llm_client()
         model = getattr(llm, "model", "unknown")
-
+        
     # Extract insights before writing
-    stored_research = (dossier or {}).get("research_notes", "") or ""
+    stored_research = _get_string_value((dossier or {}).get("research_notes", ""))
+    investor_details = _get_string_value(lead.get("investor_details", ""))
     extracted_insights = _extract_insight_angles(
         llm=llm,
         name=lead["investor_name"],
         archetype=archetype,
-        research_text=fresh_research,
-        dossier_text=stored_research + "\n" + (lead.get("investor_details") or ""),
+        research_text=fresh_research or "",
+        dossier_text=stored_research + "\n" + investor_details,
     )
 
     prompt_str = _build_prompt(

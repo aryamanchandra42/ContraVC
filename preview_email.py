@@ -28,6 +28,10 @@ DIVIDER = "-" * 70
 
 
 def print_draft(draft: dict) -> None:
+    if not draft:
+        print("Draft is None.")
+        return
+        
     fmt_letter = draft.get("subject_format") or "?"
     points = draft.get("personalization_points") or []
     print(f"\n{DIVIDER}")
@@ -36,13 +40,18 @@ def print_draft(draft: dict) -> None:
     print(f"  Subject:       {draft['subject']}")
     print(f"{DIVIDER}")
     # Print only the opening paragraph (up to the factsheet line) for a quick sanity check
-    body: str = draft["body"]
-    factsheet_marker = "Our Fund I factsheet"
+    body: str = draft.get("body", "")
+    if not body:
+        print(f"\n  BODY IS EMPTY OR NOT FOUND IN DRAFT.")
+        return
+        
+    factsheet_marker = "Our Fund I factsheet is here"
     split_idx = body.find(factsheet_marker)
     if split_idx != -1:
         opening = body[:split_idx].strip()
-        factsheet_line = body[split_idx:body.find("\n", split_idx)].strip()
-        print(f"\n  OPENING:\n{opening}\n")
+        newline_idx = body.find("\n", split_idx)
+        factsheet_line = body[split_idx:newline_idx if newline_idx != -1 else len(body)].strip()
+        print(f"\n  BODY:\n{opening}\n")
         print(f"  CTA: {factsheet_line}")
     else:
         print(f"\n  BODY (first 600 chars):\n{body[:600]}")
@@ -92,14 +101,16 @@ def main():
     for lead_id, name in leads:
         label = name or lead_id
         print(f"  Generating for {label}...", end=" ", flush=True)
-        try:
-            draft = generate_outreach_draft(
-                con, lead_id=lead_id, tone=args.tone, sender_name=args.sender
-            )
-            print("done.")
-            print_draft(draft)
-        except Exception as e:
-            print(f"FAILED: {e}")
+    try:
+        draft = generate_outreach_draft(
+            con, lead_id=lead_id, tone=args.tone, sender_name=args.sender
+        )
+        print("done.")
+        print_draft(draft)
+    except Exception as e:
+        import traceback
+        print(f"FAILED: {e}")
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

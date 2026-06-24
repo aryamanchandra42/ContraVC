@@ -190,17 +190,17 @@ def openai_lp_outreach_research(
     cached = _load_cache(cache_key)
     if cached:
         logger.debug("Outreach research cache hit for '%s'", name)
-        return cached["notes"][:max_chars], list(cached.get("urls") or [])
+        return (cached.get("notes") or "")[:max_chars], list(cached.get("urls") or [])
 
     prompt = build_outreach_research_prompt(name, archetype, known_context)
     notes, citations = provider.research(prompt)
-    if not notes.strip():
+    if not notes or not notes.strip():
         raise FetchError(f"OpenAI outreach research returned empty notes for '{name}'")
 
     urls: List[str] = []
     seen: set = set()
     for c in citations:
-        if c["url"] and c["url"] not in seen:
+        if c.get("url") and c["url"] not in seen:
             seen.add(c["url"])
             urls.append(c["url"])
 
