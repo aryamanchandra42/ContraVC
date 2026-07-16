@@ -400,7 +400,7 @@ Otherwise, output PASS.
                 prompt=critique_prompt,
                 response_model=OutreachCritique,
                 system=system,
-                max_tokens=500,
+                max_tokens=1024,
             )
             
             if critique.verdict == "PASS":
@@ -1075,7 +1075,7 @@ def update_draft_status(con, draft_id: str, status: str) -> bool:
             [row[0]],
         )
         # Sync to Airtable — mark draft sent and advance lead stage
-        airtable_sync.update_draft_status_airtable(draft_id, "sent")
+        airtable_sync.update_draft_status_airtable(draft_id, "sent", investor_name=row[0])
         airtable_sync.update_lead_latest_email(
             investor_name=row[0],
             subject=row[1],
@@ -1090,9 +1090,9 @@ def update_draft_status(con, draft_id: str, status: str) -> bool:
             "WHERE investor_name = ? AND status = 'contacted'",
             [row[0]],
         )
-        airtable_sync.update_draft_status_airtable(draft_id, "draft")
+        airtable_sync.update_draft_status_airtable(draft_id, "draft", investor_name=row[0])
     elif status == "approved":
-        airtable_sync.update_draft_status_airtable(draft_id, "approved")
+        airtable_sync.update_draft_status_airtable(draft_id, "approved", investor_name=row[0])
     elif status == "discarded":
-        airtable_sync.update_draft_status_airtable(draft_id, "discarded")
+        airtable_sync.update_draft_status_airtable(draft_id, "discarded", investor_name=row[0])
     return True

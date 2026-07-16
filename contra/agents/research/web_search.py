@@ -385,13 +385,13 @@ class AnthropicWebSearchProvider:
     Billed against existing ANTHROPIC_API_KEY credits.
 
     Requires: pip install anthropic; ANTHROPIC_API_KEY (or CLAUDE_API_KEY) env var.
-    Model via ANTHROPIC_SEARCH_MODEL (default: claude-3-5-sonnet-20241022 — cheapest
-    search-capable model; Haiku does not support web_search_20250305).
+    Model via ANTHROPIC_SEARCH_MODEL (default: claude-sonnet-4-6 — cheapest
+    search-capable model currently available; Haiku does not support web_search_20250305).
     """
 
-    # Models known to support web_search_20250305 (cheapest first)
+    # Models known to support web_search_20250305 (cheapest first).
+    # claude-3-5-sonnet-20241022 was retired by Anthropic (404 as of Oct 2025).
     _SEARCH_MODELS = (
-        "claude-3-5-sonnet-20241022",
         "claude-sonnet-4-6",
         "claude-opus-4-5",
     )

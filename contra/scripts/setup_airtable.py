@@ -192,6 +192,30 @@ def create_field(table_id: str, name: str, field_type: str, options: dict | None
     return True
 
 
+def rename_primary_field(table_id: str, new_name: str) -> None:
+    """Rename the primary (first) field of a table if it isn't already correct."""
+    url = f"https://api.airtable.com/v0/meta/bases/{BASE_ID}/tables"
+    resp = requests.get(url, headers=HEADERS, timeout=15)
+    resp.raise_for_status()
+    for t in resp.json().get("tables", []):
+        if t["id"] == table_id:
+            fields = t.get("fields", [])
+            if not fields:
+                return
+            primary = fields[0]
+            if primary["name"] == new_name:
+                print(f"  [skip]   primary field already named '{new_name}'")
+                return
+            field_id = primary["id"]
+            patch_url = f"https://api.airtable.com/v0/meta/bases/{BASE_ID}/tables/{table_id}/fields/{field_id}"
+            r = requests.patch(patch_url, headers=HEADERS, json={"name": new_name}, timeout=15)
+            if r.ok:
+                print(f"  [rename] primary field '{primary['name']}' -> '{new_name}'")
+            else:
+                print(f"  WARN: could not rename primary field: {r.text[:120]}")
+            return
+
+
 def setup_table(table_name: str, table_id: str, field_defs: list) -> None:
     print(f"\n{'-'*60}")
     print(f"Table: {table_name}  ({table_id})")
@@ -228,6 +252,12 @@ def main() -> None:
             f"Create them first with exactly these names:\n"
             f"  - {LEADS_TABLE}\n  - {DRAFTS_TABLE}\n  - {DOSSIERS_TABLE}"
         )
+
+    # Rename the default primary "Name" field to the correct key field name
+    print("\nRenaming primary fields...")
+    rename_primary_field(tables[LEADS_TABLE],    "Investor Name")
+    rename_primary_field(tables[DRAFTS_TABLE],   "Draft ID")
+    rename_primary_field(tables[DOSSIERS_TABLE], "Name Key")
 
     setup_table(LEADS_TABLE,    tables[LEADS_TABLE],    LEADS_FIELDS)
     setup_table(DRAFTS_TABLE,   tables[DRAFTS_TABLE],   DRAFTS_FIELDS)

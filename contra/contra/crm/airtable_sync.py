@@ -132,9 +132,10 @@ def push_lead(lead: Dict[str, Any]) -> None:
             fields = _build_lead_fields(lead)
             if not fields.get("Investor Name"):
                 return
-            table.upsert(
+            table.batch_upsert(
                 [{"fields": fields}],
                 key_fields=["Investor Name"],
+                typecast=True,
             )
             logger.debug("airtable_sync: upserted lead '%s'", lead.get("investor_name"))
         except Exception as exc:
@@ -176,9 +177,10 @@ def update_lead_latest_email(
                 fields["Status"] = status
             if last_outreach_at:
                 fields["Last Outreach At"] = last_outreach_at[:10]  # ISO date only
-            table.upsert(
+            table.batch_upsert(
                 [{"fields": fields}],
                 key_fields=["Investor Name"],
+                typecast=True,
             )
         except Exception as exc:
             logger.warning("airtable_sync: update_lead_latest_email failed for '%s': %s",
@@ -193,7 +195,8 @@ def update_lead_latest_email(
 
 def push_outreach_draft(draft: Dict[str, Any]) -> None:
     """
-    Upsert an Outreach Draft row in Airtable. Matches on 'Draft ID'.
+    Upsert an Outreach Draft row in Airtable. Matches on 'Investor Name'
+    so each LP has at most one draft row (latest wins).
     Non-blocking.
     """
     if not _is_configured():
@@ -222,11 +225,12 @@ def push_outreach_draft(draft: Dict[str, Any]) -> None:
                 "Personalization Points": points_text,
             }
             fields = {k: v for k, v in fields.items() if v != "" and v is not None}
-            if not fields.get("Draft ID"):
+            if not fields.get("Investor Name"):
                 return
-            table.upsert(
+            table.batch_upsert(
                 [{"fields": fields}],
-                key_fields=["Draft ID"],
+                key_fields=["Investor Name"],
+                typecast=True,
             )
             logger.debug("airtable_sync: upserted draft '%s'", draft.get("draft_id"))
         except Exception as exc:
@@ -236,9 +240,14 @@ def push_outreach_draft(draft: Dict[str, Any]) -> None:
     _executor.submit(_do)
 
 
-def update_draft_status_airtable(draft_id: str, status: str) -> None:
+def update_draft_status_airtable(
+    draft_id: str,
+    status: str,
+    investor_name: Optional[str] = None,
+) -> None:
     """
-    Update just the Status field on an Outreach Draft row. Non-blocking.
+    Update the Status field on an Outreach Draft row. Non-blocking.
+    Matches on Investor Name (one row per LP).
     """
     if not _is_configured():
         return
@@ -248,9 +257,20 @@ def update_draft_status_airtable(draft_id: str, status: str) -> None:
             table = _get_table("AIRTABLE_DRAFTS_TABLE", "Outreach Drafts")
             if table is None:
                 return
-            table.upsert(
-                [{"fields": {"Draft ID": draft_id, "Status": status}}],
-                key_fields=["Draft ID"],
+            fields: Dict[str, Any] = {"Status": status}
+            if draft_id:
+                fields["Draft ID"] = draft_id
+            if not investor_name:
+                logger.warning(
+                    "airtable_sync: update_draft_status skipped — no investor_name for draft '%s'",
+                    draft_id,
+                )
+                return
+            fields["Investor Name"] = investor_name
+            table.batch_upsert(
+                [{"fields": fields}],
+                key_fields=["Investor Name"],
+                typecast=True,
             )
         except Exception as exc:
             logger.warning("airtable_sync: update_draft_status failed for '%s': %s",
@@ -305,9 +325,10 @@ def push_dossier(dossier: Dict[str, Any]) -> None:
             fields = {k: v for k, v in fields.items() if v not in ("", None)}
             if not fields.get("Name Key"):
                 return
-            table.upsert(
+            table.batch_upsert(
                 [{"fields": fields}],
                 key_fields=["Name Key"],
+                typecast=True,
             )
             logger.debug("airtable_sync: upserted dossier '%s'", dossier.get("name_key"))
         except Exception as exc:
