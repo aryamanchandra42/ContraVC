@@ -5,7 +5,7 @@ All probability fields are Annotated[float, Field(ge=0, le=1)].
 ConfigDict(extra="forbid") is set on every model — no silent field injection.
 
 These schemas are the contracts between the LLM extraction layer (instructor)
-and the write-back layer (enrichment_agent, qa_agent, brief_agent).
+and the write-back layer.
 """
 
 from __future__ import annotations

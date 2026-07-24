@@ -54,6 +54,12 @@ class CrmLead(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
+    # LP Scorecard summary (joined from lead_scorecards by name_key)
+    scorecard_verdict: Optional[str] = None   # qualified | review | rejected
+    scorecard_reason: Optional[str] = None
+    yes_reason: Optional[str] = None          # warm_path | syndicate_alum | ...
+    yes_evidence: Optional[str] = None
+
 
 class CrmProspect(BaseModel):
     """Prospect not yet in CRM — from ICP, syndicate, or benchmark."""

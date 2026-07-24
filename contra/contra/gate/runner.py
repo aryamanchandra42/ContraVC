@@ -67,34 +67,6 @@ def _web_budget(compact_web: bool) -> int:
         return default
 
 
-def _pitchbook_facts(name: str) -> List[str]:
-    """Deterministic ground-truth facts from the authenticated PitchBook profile."""
-    try:
-        from agents.research.pitchbook_fetch import pb_deterministic_facts
-
-        return pb_deterministic_facts(name)
-    except Exception:
-        return []
-
-
-def _pitchbook_status(source_urls: List[str]) -> str:
-    """
-    Derive PitchBook enrichment status from the source URLs returned by web research.
-
-    Checks whether a PitchBook profile was injected by looking at source_urls, and
-    whether PitchBook cookies are available at all.
-    """
-    try:
-        from agents.research.pitchbook_fetch import cookies_available
-        if not cookies_available():
-            return "no_cookies"
-    except Exception:
-        return "no_cookies"
-
-    pb_fetched = any("pitchbook.com" in url for url in (source_urls or []))
-    return "fetched" if pb_fetched else "not_found"
-
-
 def _parse_nfx_context(nfx_context: Optional[str]) -> dict:
     """Parse the NFX context string back into a structured dict for the UI."""
     if not nfx_context:
@@ -190,19 +162,7 @@ def run_gate(
     else:
         web_context, source_urls = search_lp(name, **search_kw)
 
-    pb_status = _pitchbook_status(source_urls)
-
-    from contra.gate.knowledge_enrich import enrich_gate_knowledge
-
-    web_context = enrich_gate_knowledge(
-        name, web_context, brief, screening_mode=screening_mode,
-    )
-
-    # ----- PitchBook ground-truth facts (deterministic C1 evidence) ---------
-    # A PB profile listing fund commitments deterministically passes C1 in the
-    # evaluator and is surfaced to the LLM as a hard fact, not an inference.
-    pb_facts = _pitchbook_facts(name)
-    eval_facts = analyst_facts + pb_facts
+    eval_facts = analyst_facts
 
     drill_results = run_drill_down(con, brief)
     allocation_evidence = build_allocation_evidence(brief)
@@ -318,7 +278,6 @@ def run_gate(
         analyst_facts=analyst_facts,
         lp_commitments_found=explanation.lp_commitments_found,
         primary_blocker=primary_blocker,
-        pitchbook_status=pb_status,
         verdict_model=verdict_meta.get("model", ""),
         escalated=bool(verdict_meta.get("escalated")),
         verification_notes=verification_notes,

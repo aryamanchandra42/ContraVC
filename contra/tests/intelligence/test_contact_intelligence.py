@@ -1,5 +1,5 @@
 """
-Contact intelligence tests — gate extraction, channel recommendation.
+Contact intelligence tests — gate extraction.
 
 Ihar Mahniok fixture: gate research found his personal email, LinkedIn and X.
 """
@@ -10,14 +10,11 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from contra.intelligence.channel_recommend import recommend_channel
 from contra.intelligence.contact_extract import (
     _extract_from_text,
     _extract_from_analyst_facts,
     extract_and_persist_gate_contacts,
 )
-from contra.intelligence.contact_resolver import ContactProfile, ContactChannel, ContactPerson
-
 
 # ---------------------------------------------------------------------------
 # Ihar Mahniok fixture data
@@ -126,68 +123,6 @@ class TestExtractAndPersist(unittest.TestCase):
             web_context="",
         )
         self.assertEqual(stats["gate_emails"], 0)
-
-
-# ---------------------------------------------------------------------------
-# Channel recommendation
-# ---------------------------------------------------------------------------
-
-class TestChannelRecommend(unittest.TestCase):
-
-    def _profile_with(self, *, email=None, linkedin=None, twitter=None) -> ContactProfile:
-        channels = []
-        if email:
-            channels.append(ContactChannel(type="email", value=email, source="gate_research", confidence=0.9))
-        if linkedin:
-            channels.append(ContactChannel(type="linkedin", value=linkedin, source="gate_research", confidence=0.8))
-        if twitter:
-            channels.append(ContactChannel(type="twitter", value=twitter, source="gate_research", confidence=0.75))
-        person = ContactPerson(full_name="Test LP", title=None, company=None, location=None, channels=channels)
-        return ContactProfile(
-            investor_name="Test LP",
-            allocator_id="alloc-001",
-            contacts=[person],
-        )
-
-    def test_personal_domain_email_recommended(self):
-        profile = self._profile_with(
-            email="i@mahaniok.com",
-            linkedin="https://linkedin.com/in/imahaniok",
-            twitter="https://x.com/imahaniok",
-        )
-        result = recommend_channel(profile, warm_path_count=0, investor_type="individual")
-        self.assertEqual(result.recommended_channel, "email")
-        # Custom domain → personal domain heuristic
-        self.assertIn("mahaniok", result.recommendation_rationale.lower())
-
-    def test_warm_intro_always_wins(self):
-        profile = self._profile_with(email="cio@largefund.com")
-        result = recommend_channel(profile, warm_path_count=3, investor_type="family_office")
-        self.assertEqual(result.recommended_channel, "warm_intro")
-        self.assertEqual(result.confidence, 0.95)
-
-    def test_linkedin_only(self):
-        profile = self._profile_with(linkedin="https://linkedin.com/in/someone")
-        result = recommend_channel(profile, warm_path_count=0)
-        self.assertEqual(result.recommended_channel, "linkedin")
-
-    def test_twitter_only(self):
-        profile = self._profile_with(twitter="https://x.com/angelinvestor")
-        result = recommend_channel(profile, warm_path_count=0)
-        self.assertEqual(result.recommended_channel, "twitter")
-        self.assertLess(result.confidence, 0.5)
-
-    def test_no_channels_empty_recommendation(self):
-        profile = ContactProfile(investor_name="Unknown LP", allocator_id=None)
-        result = recommend_channel(profile)
-        self.assertEqual(result.recommended_channel, "")
-        self.assertEqual(result.confidence, 0.0)
-
-    def test_work_email_preferred_for_institutional(self):
-        profile = self._profile_with(email="partner@vcfirm.com", linkedin="https://linkedin.com/in/someone")
-        result = recommend_channel(profile, warm_path_count=0, investor_type="family_office")
-        self.assertEqual(result.recommended_channel, "email")
-        self.assertGreater(result.confidence, 0.8)
 
 
 # ---------------------------------------------------------------------------

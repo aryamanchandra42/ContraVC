@@ -97,8 +97,14 @@ def _load_prospect_ids(con, config: Dict[str, Any]) -> Set[str]:
     ).fetchall():
         if pop in pops:
             ids.add(aid)
+    try:
+        from agents.scoring.icp_spec import ICP_VERSION
+        version = ICP_VERSION
+    except Exception:
+        version = "4.2"
     for (aid,) in con.execute(
-        "SELECT CAST(allocator_id AS VARCHAR) FROM icp_scores WHERE icp_version = '4.1'"
+        "SELECT CAST(allocator_id AS VARCHAR) FROM icp_scores WHERE icp_version = ?",
+        [version],
     ).fetchall():
         ids.add(aid)
     return ids

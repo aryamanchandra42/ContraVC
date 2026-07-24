@@ -163,9 +163,6 @@ class GateResult(BaseModel):
     lp_commitments_found: List[str] = Field(default_factory=list)
     # Single decisive reason for NO verdicts (empty for yes/review)
     primary_blocker: str = ""
-    # PitchBook enrichment status: "fetched" | "not_found" | "no_cookies" | "expired"
-    pitchbook_status: str = "no_cookies"
-
     # Verdict provenance — which model decided, and whether the strong-model
     # escalation tier was used (yes/review triage verdicts are re-decided by it)
     verdict_model: str = ""

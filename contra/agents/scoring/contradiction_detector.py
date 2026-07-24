@@ -114,10 +114,11 @@ def run_contradiction_detection(con) -> Dict[str, int]:
         JOIN signals s
           ON CAST(s.allocator_id AS VARCHAR) = CAST(i.allocator_id AS VARCHAR)
          AND s.signal_type = 'em_participation'
-        WHERE i.icp_version = '4.1'
+        WHERE i.icp_version = ?
           AND i.c2_emerging_manager_pass = TRUE
           AND COALESCE(i.s2_emerging_manager, 0) < 0.55
-        """
+        """,
+        [_icp_version()],
     ).fetchall()
     for aid, s2, sig_id, src_rec in rows:
         if not sig_id:
@@ -181,14 +182,15 @@ def run_contradiction_detection(con) -> Dict[str, int]:
         JOIN signals s_em
           ON CAST(s_em.allocator_id AS VARCHAR) = CAST(i.allocator_id AS VARCHAR)
          AND s_em.signal_type = 'em_participation'
-        WHERE i.icp_version = '4.1'
+        WHERE i.icp_version = ?
           AND i.s2_emerging_manager >= 0.7
           AND COALESCE(s_rec.normalized_value, 0) < 0.2
           AND EXISTS (
               SELECT 1 FROM investments inv
               WHERE CAST(inv.lp_id AS VARCHAR) = CAST(i.allocator_id AS VARCHAR)
           )
-        """
+        """,
+        [__import__("agents.scoring.icp_spec", fromlist=["ICP_VERSION"]).ICP_VERSION],
     ).fetchall()
     for aid, s2, recency, sig_id, src_rec in rows:
         if not sig_id:

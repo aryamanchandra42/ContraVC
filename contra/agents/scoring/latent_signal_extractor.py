@@ -169,8 +169,9 @@ def _extract_icp_mirror_signals(con) -> Dict[str, int]:
                 )
             ) AS src_rec
         FROM icp_scores i
-        WHERE i.icp_version = '4.1'
-        """
+        WHERE i.icp_version = ?
+        """,
+        [_icp_version()],
     ).fetchall()
 
     mapping = (

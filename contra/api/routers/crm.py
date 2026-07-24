@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from api.deps import get_db
 import math
@@ -151,7 +154,22 @@ def list_leads(
 
     rows = con.execute(sql, params).fetchall()
     cols = [d[0] for d in con.description]
-    return [_workspace_row_to_lead(r, cols) for r in rows]
+    leads = [_workspace_row_to_lead(r, cols) for r in rows]
+
+    # Attach scorecard summaries in one batch query
+    try:
+        from contra.scorecard import scorecards_for_keys
+        cards = scorecards_for_keys(con, [l.name_key for l in leads])
+        for lead in leads:
+            sc = cards.get(lead.name_key)
+            if sc:
+                lead.scorecard_verdict = sc.verdict
+                lead.scorecard_reason = sc.verdict_reason
+                lead.yes_reason = sc.yes_reason
+                lead.yes_evidence = sc.yes_evidence
+    except Exception:
+        logger.warning("Scorecard join failed for lead list", exc_info=True)
+    return leads
 
 
 @router.get("/crm/prospects", response_model=List[CrmProspect])
@@ -445,6 +463,18 @@ def get_lp_dossier(investor_name: str, con=Depends(get_db)) -> Dict[str, Any]:
     return dossier
 
 
+@router.get("/crm/scorecard/{investor_name}")
+def get_lp_scorecard(investor_name: str, con=Depends(get_db)) -> Dict[str, Any]:
+    """The visible 5-check scorecard for an LP (latest evaluation, any source)."""
+    from agents.normalization.crm_normalizer import norm_key
+    from contra.scorecard import get_scorecard
+
+    sc = get_scorecard(con, norm_key(investor_name))
+    if not sc:
+        raise HTTPException(status_code=404, detail=f"No scorecard for '{investor_name}'")
+    return sc.to_api_dict()
+
+
 class DossierNotesUpdate(BaseModel):
     notes: str
 
@@ -605,10 +635,12 @@ def outreach_queue(top: int = Query(10, ge=1, le=50), con=Depends(get_db)) -> Li
             l.investor_location, l.gate_verdict, l.gate_confidence,
             l.computed_score, l.warm_path_count, l.pipeline_stage,
             d.lp_commitments_json,
+            sc.yes_reason, sc.yes_evidence, sc.verdict AS scorecard_verdict,
             (SELECT COUNT(*) FROM crm_outreach_drafts o
              WHERE CAST(o.lead_id AS VARCHAR) = CAST(l.lead_id AS VARCHAR)) AS draft_count
         FROM crm_leads l
         LEFT JOIN lp_dossiers d ON d.name_key = l.name_key
+        LEFT JOIN lead_scorecards sc ON sc.name_key = l.name_key
         WHERE l.status = 'active'
         """
     )
@@ -636,7 +668,20 @@ def outreach_queue(top: int = Query(10, ge=1, le=50), con=Depends(get_db)) -> Li
         warm_bonus = min(warm_paths, 3) * 8
         priority = base + verdict_bonus + confidence_bonus + commit_bonus + warm_bonus
 
+        yes_reason = data.get("yes_reason")
+        yes_evidence = data.get("yes_evidence") or ""
+        # Prefer scorecard yes-reason for queue ordering
+        yes_bonus = {
+            "warm_path": 40, "syndicate_alum": 35, "peer_fund_backer": 30,
+            "stated_em_program": 25, "thesis_match": 15, "cold_fit": 0,
+        }.get(yes_reason or "", 0)
+        priority += yes_bonus
+
         why = []
+        if yes_evidence:
+            why.append(yes_evidence[:160])
+        elif yes_reason:
+            why.append(str(yes_reason).replace("_", " "))
         if commitments:
             why.append(f"{len(commitments)} verified LP commitment(s)")
         if verdict == "yes":
@@ -654,6 +699,9 @@ def outreach_queue(top: int = Query(10, ge=1, le=50), con=Depends(get_db)) -> Li
             "gate_verdict": verdict,
             "priority_score": round(priority, 1),
             "why": "; ".join(why),
+            "yes_reason": yes_reason,
+            "yes_evidence": yes_evidence,
+            "scorecard_verdict": data.get("scorecard_verdict"),
             "has_draft": int(data.get("draft_count") or 0) > 0,
             "pipeline_stage": data.get("pipeline_stage"),
         })

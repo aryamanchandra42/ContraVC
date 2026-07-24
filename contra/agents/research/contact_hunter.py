@@ -1,8 +1,7 @@
 """
-Contact Hunter using Tavily web search and Verifalia email verification.
+Contact Hunter using web search.
 
-Replaces the Phantombuster integration. Searches the web for an LP's contact details,
-extracts them via regex, and verifies emails before persisting.
+Searches the web for an LP's contact details, extracts them via regex, and persists them.
 
 Each extracted contact value is associated with the source URL it was found on,
 stored as `context_url` inside the channels_json blob so incorrect finds can be traced.
@@ -22,7 +21,6 @@ from typing import Dict, List, Optional
 from agents.research.web_search import (
     get_search_provider, SearchUnavailable, TavilyProvider, AnthropicWebSearchProvider,
 )
-from agents.research.verifalia_client import verify_emails
 from contra.intelligence.contact_extract import _extract_from_text, _dedupe_channels, _upsert_gate_contact
 
 logger = logging.getLogger(__name__)
@@ -57,7 +55,7 @@ def hunt_and_persist_contacts(
     max_results: int = 10
 ) -> Dict[str, int]:
     """
-    Search web for contact info, verify emails via Verifalia, and persist to allocator_contacts.
+    Search web for contact info and persist to allocator_contacts.
 
     Each email / LinkedIn / Twitter value is tagged with the URL of the search result it
     came from (`context_url` inside channels_json) so incorrect results can be traced.
@@ -127,21 +125,7 @@ def hunt_and_persist_contacts(
     raw_emails = list(email_source_url.keys())
 
     verified_emails: List[str] = []
-    unverified_emails: List[str] = []
-
-    if raw_emails:
-        logger.info(f"Contact Hunter: Found {len(raw_emails)} raw emails for {lp_name}. Verifying...")
-        verify_results = verify_emails(raw_emails)
-
-        for email, status in verify_results.items():
-            if status == "Deliverable":
-                verified_emails.append(email)
-                logger.info(f"Contact Hunter: Email {email} is Deliverable.")
-            elif status == "Unknown":
-                unverified_emails.append(email)
-                logger.info(f"Contact Hunter: Email {email} verification skipped/unknown.")
-            else:
-                logger.info(f"Contact Hunter: Email {email} rejected (Status: {status}).")
+    unverified_emails: List[str] = list(raw_emails)
 
     linkedin_urls = list(linkedin_source_url.keys())
     twitter_urls = list(twitter_source_url.keys())

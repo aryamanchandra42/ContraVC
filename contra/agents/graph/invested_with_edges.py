@@ -28,8 +28,11 @@ def _priority_lps(con) -> Set[str]:
         "SELECT CAST(allocator_id AS VARCHAR) FROM allocators WHERE population = 'institutional_prospect'"
     ).fetchall():
         ids.add(aid)
+    from agents.scoring.icp_spec import ICP_VERSION
+
     for (aid,) in con.execute(
-        "SELECT CAST(allocator_id AS VARCHAR) FROM icp_scores WHERE icp_version = '4.1'"
+        "SELECT CAST(allocator_id AS VARCHAR) FROM icp_scores WHERE icp_version = ?",
+        [ICP_VERSION],
     ).fetchall():
         ids.add(aid)
     return ids

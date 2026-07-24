@@ -139,10 +139,13 @@ def _insert_lead(con, fields: Dict[str, Any], source: str) -> CrmLead:
 
 
 def get_lead_by_id(con, lead_id: str) -> CrmLead:
-    row = con.execute(
-        "SELECT * FROM v_crm_workspace WHERE lead_id = ?",
-        [lead_id],
-    ).fetchone()
+    try:
+        row = con.execute(
+            "SELECT * FROM v_crm_workspace WHERE lead_id = ?",
+            [lead_id],
+        ).fetchone()
+    except Exception:
+        row = None
     if not row:
         row = con.execute(
             "SELECT *, NULL AS effective_rank FROM crm_leads WHERE lead_id = ?",

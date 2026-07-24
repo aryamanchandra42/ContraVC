@@ -241,7 +241,7 @@ JOIN allocators a ON CAST(a.allocator_id AS VARCHAR) = CAST(i.allocator_id AS VA
 LEFT JOIN benchmark_rankings b
     ON CAST(b.allocator_id AS VARCHAR) = CAST(i.allocator_id AS VARCHAR)
     AND b.ranking_source = 'contravc_top200'
-WHERE i.icp_version = '4.1';
+WHERE i.icp_version = (SELECT max(icp_version) FROM icp_scores);
 
 -- ============================================================
 -- Contra LLM navigation views
@@ -428,7 +428,7 @@ SELECT
 FROM allocators a
 LEFT JOIN icp_scores i
     ON CAST(i.allocator_id AS VARCHAR) = CAST(a.allocator_id AS VARCHAR)
-   AND i.icp_version = '4.1'
+   AND i.icp_version = (SELECT max(icp_version) FROM icp_scores)
 LEFT JOIN benchmark_rankings b
     ON CAST(b.allocator_id AS VARCHAR) = CAST(a.allocator_id AS VARCHAR)
    AND b.ranking_source = 'contravc_top200';
@@ -596,7 +596,7 @@ LEFT JOIN crm_gate_reviews gr
         ),
         '[^a-zA-Z0-9]', '', 'g'
     ))
-WHERE i.icp_version = '4.1'
+WHERE i.icp_version = (SELECT max(icp_version) FROM icp_scores)
   AND COALESCE(i.excluded, FALSE) = FALSE
   AND COALESCE(i.core_pass, FALSE) = TRUE
   AND COALESCE(a.population, '') = 'institutional_prospect'

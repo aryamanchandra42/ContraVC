@@ -13,11 +13,77 @@ import uuid
 from typing import Any, Dict, Optional
 
 from agents.normalization.taxonomies import normalize_geography, normalize_lp_type_label
-from agents.research.enrichment_agent import _apply_enrichment_to_allocator, _write_research_raw_record
 from contra.gate.models import GateExplanation
 from contra.intelligence.brief import IntelligenceBrief
 
 logger = logging.getLogger(__name__)
+
+_ENRICHABLE_COLUMNS = (
+    "allocator_type",
+    "geography",
+    "hq_country",
+    "em_appetite",
+    "ai_appetite",
+    "stage_preference",
+)
+
+
+def _write_research_raw_record(
+    con,
+    allocator_id: str,
+    chunk_idx: int,
+    payload: Dict[str, Any],
+) -> str:
+    """
+    Insert one entities_raw row for an externally-researched enrichment fact.
+    Returns the source_record_id.
+    """
+    from agents.ingestion.base import hash_content, make_source_record_id, persist_raw_records, RawRecord
+
+    source_file = f"research/enrichment/{allocator_id}.json"
+    source_offset = f"research:{allocator_id}:{chunk_idx}"
+    content_hash = hash_content(payload)
+    source_record_id = make_source_record_id(source_file, source_offset, content_hash)
+
+    record = RawRecord(
+        source_record_id=source_record_id,
+        source_file=source_file,
+        source_type="api",
+        source_offset=source_offset,
+        content_hash=content_hash,
+        raw_content=payload,
+    )
+    persist_raw_records([record], con)
+    return source_record_id
+
+
+def _apply_enrichment_to_allocator(
+    con,
+    allocator_id: str,
+    updates: Dict[str, str],
+) -> int:
+    """
+    COALESCE-safe UPDATE: only sets columns that are currently NULL.
+    Returns number of columns actually updated.
+    """
+    if not updates:
+        return 0
+
+    safe_updates = {
+        k: v for k, v in updates.items()
+        if k in _ENRICHABLE_COLUMNS and v not in (None, "", "unknown")
+    }
+    if not safe_updates:
+        return 0
+
+    set_clauses = [f"{col} = COALESCE({col}, ?)" for col in safe_updates]
+    set_sql = ", ".join(set_clauses) + ", updated_at = NOW()"
+
+    con.execute(
+        f"UPDATE allocators SET {set_sql} WHERE CAST(allocator_id AS VARCHAR) = ?",
+        list(safe_updates.values()) + [allocator_id],
+    )
+    return len(safe_updates)
 
 _ARCHETYPE_TYPE = {
     "family_office": "family_office",

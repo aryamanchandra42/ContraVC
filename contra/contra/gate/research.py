@@ -7,9 +7,6 @@ Two retrieval paths, in priority order:
    analyst notes with citations. Enabled when PULSE_SEARCH_PROVIDER is
    'openai'/'auto' and OPENAI_API_KEY is set.
 2. Query fan-out (fallback): 6-7 fixed Tavily queries merged + deduped.
-
-Both paths inject the authenticated PitchBook profile (structured commitments
-parse) as the highest-priority source when session cookies are available.
 """
 
 from __future__ import annotations
@@ -32,58 +29,6 @@ from agents.research.web_search import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _inject_pitchbook(
-    lp_name: str,
-    results: List[SearchResult],
-) -> List[SearchResult]:
-    """
-    If PitchBook session cookies are available, try to fetch the LP's profile.
-
-    Strategy (in priority order):
-    1. If a pitchbook.com URL already appeared in search results, fetch it
-       authenticated to get the full page (not just the login redirect).
-    2. Otherwise search PitchBook by LP name for the profile.
-
-    The fetched result is inserted at position 0 with score=2.0 so the LLM
-    sees PitchBook's structured data (AUM, LP type, recent funds) first.
-    """
-    try:
-        from agents.research.pitchbook_fetch import cookies_available, pb_inject_result
-
-        if not cookies_available():
-            return results
-
-        # Check if any search result already points to a PitchBook profile URL
-        pb_url = None
-        for r in results:
-            if "pitchbook.com/profiles/" in r.url:
-                pb_url = r.url
-                break
-
-        pb_result = pb_inject_result(lp_name, pb_url=pb_url)
-        if pb_result:
-            # Remove any existing (un-authed) PitchBook entry so we don't duplicate
-            filtered = [r for r in results if "pitchbook.com" not in r.url]
-            logger.debug("PitchBook profile injected for '%s'", lp_name)
-            return [pb_result] + filtered
-
-    except Exception as exc:
-        logger.debug("PitchBook injection skipped for '%s': %s", lp_name, exc)
-
-    return results
-
-
-def _apply_rerank(
-    name: str,
-    results: List[SearchResult],
-    screening_mode: str = "institutional",
-) -> List[SearchResult]:
-    from agents.research.nim_rerank import build_lp_rerank_query, rerank_search_results
-
-    query = build_lp_rerank_query(name, screening_mode=screening_mode)
-    return rerank_search_results(results, query)
 
 
 # ---------------------------------------------------------------------------
@@ -249,19 +194,6 @@ def _deep_research(
         context = f"{context}\n\n{block}"
         urls.extend(extra_urls)
 
-    # Prepend the authenticated PitchBook block — highest-value ground truth.
-    try:
-        from agents.research.pitchbook_fetch import fetch_pb_structured, pb_structured_block
-
-        pb_block = pb_structured_block(name)
-        if pb_block:
-            context = f"{pb_block}\n\n{context}"
-            structured = fetch_pb_structured(name)
-            if structured and structured.url and structured.url not in seen:
-                urls = [structured.url] + urls
-    except Exception as exc:
-        logger.debug("PitchBook block skipped for '%s': %s", name, exc)
-
     return context[: max_chars + 6000], urls
 
 
@@ -326,9 +258,6 @@ def _fanout_research(
 
     if not unique:
         return "(no web results retrieved)", []
-
-    unique = _inject_pitchbook(name, unique)
-    unique = _apply_rerank(name, unique, screening_mode=screening_mode)
 
     merged = SearchResponse(query=f"[gate] {name}", results=unique)
     urls = [r.url for r in unique]

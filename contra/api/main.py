@@ -10,7 +10,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import catalog, crm, discovery, gate, intel, ops
+from fastapi import Depends
+
+from api.auth import require_auth
+from api.routers import auth, catalog, crm, discovery, gate, intel, ops, prospector
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -45,8 +48,14 @@ async def lifespan(app: FastAPI):
 
     _shared_connection()
 
+    # Autonomous LP mining on an interval (PROSPECTOR_AUTORUN=false to disable)
+    from contra.prospector.scheduler import start_scheduler, stop_scheduler
+
+    start_scheduler(_shared_connection)
+
     yield
 
+    stop_scheduler()
     close_shared_connection()
 
 
@@ -55,6 +64,7 @@ app = FastAPI(
     description="Backend intelligence layer for the FundingStack GP platform",
     version="0.1.0",
     lifespan=lifespan,
+    dependencies=[Depends(require_auth)],
 )
 
 app.add_middleware(
@@ -66,14 +76,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(gate.router, prefix="/api", tags=["gate"])
 app.include_router(crm.router, prefix="/api", tags=["crm"])
 app.include_router(intel.router, prefix="/api", tags=["intel"])
 app.include_router(ops.router, prefix="/api", tags=["ops"])
 app.include_router(catalog.router, prefix="/api", tags=["catalog"])
 app.include_router(discovery.router, prefix="/api", tags=["discovery"])
+app.include_router(prospector.router, prefix="/api", tags=["prospector"])
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "contra-api"}
+    from api.auth import auth_enabled
+
+    return {"status": "ok", "service": "contra-api", "auth_required": auth_enabled()}

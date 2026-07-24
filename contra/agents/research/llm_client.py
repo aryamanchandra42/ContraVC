@@ -227,7 +227,6 @@ def nvidia_configured() -> bool:
     return bool(
         _get_nvidia_api_key()
         or os.environ.get("NIM_BASE_URL", "").strip()
-        or os.environ.get("NIM_RERANK_BASE_URL", "").strip()
     )
 
 

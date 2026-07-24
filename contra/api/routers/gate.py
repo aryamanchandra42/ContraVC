@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -12,6 +13,8 @@ from api.deps import get_db
 from contra.gate import run_gate
 from contra.gate.batch_models import BatchGateReport
 from contra.gate.models import GateResult
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -53,7 +56,10 @@ def gate(req: GateRequest, con=Depends(get_db)) -> GateResult:
         from contra.crm.writer import record_gate_review
         record_gate_review(con, result)
     except Exception:
-        pass
+        logger.warning("Gate review record failed for %s", req.name, exc_info=True)
+
+    from contra.scorecard import save_scorecard_from_gate
+    save_scorecard_from_gate(con, result)
 
     return result
 

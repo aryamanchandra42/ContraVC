@@ -209,6 +209,9 @@ def _screen_one(
             )
             verdict = "yes" if result.yes else ("review" if result.is_review else "no")
 
+            from contra.scorecard import save_scorecard_from_gate
+            save_scorecard_from_gate(con, result)
+
             item = BatchGateItem(
                 investor_name=name,
                 firm_name=record.firm_name,

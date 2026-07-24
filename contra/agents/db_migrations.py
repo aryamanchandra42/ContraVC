@@ -565,6 +565,162 @@ def migrate_crm_rejection_tracking(con) -> bool:
     return ran
 
 
+def migrate_lead_scorecards(con) -> bool:
+    """
+    Add lead_scorecards — the visible 5-check evaluation per LP name.
+
+    One row per name_key (latest wins). Each row stores the verdict
+    (qualified/review/rejected), a plain-language reason, the yes-reason hook,
+    and checks_json: five checks each with status + evidence quote + source URL.
+    Written by contra.scorecard on gate runs and prospector runs.
+    """
+    if _table_exists(con, "lead_scorecards"):
+        return False
+    con.execute(
+        """
+        CREATE TABLE lead_scorecards (
+            name_key        VARCHAR PRIMARY KEY,
+            investor_name   VARCHAR NOT NULL,
+            verdict         VARCHAR NOT NULL,
+            verdict_reason  VARCHAR,
+            yes_reason      VARCHAR,
+            yes_evidence    VARCHAR,
+            checks_json     JSON NOT NULL,
+            source          VARCHAR NOT NULL DEFAULT 'gate',
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lead_scorecards_verdict ON lead_scorecards(verdict)"
+    )
+    return True
+
+
+def migrate_prospector(con) -> bool:
+    """
+    Add the Prospector agent tables:
+
+    prospector_seeds      — what the mining agent searches from (peer funds,
+                            confirmed LPs, query templates). Seeds rotate by
+                            last_mined_at so runs don't repeat themselves.
+    prospector_candidates — every candidate ever surfaced, with its discovery
+                            evidence and lifecycle status. Nothing silently
+                            disappears; dedupe checks this table too.
+    prospector_runs       — one row per mining run: budget, funnel counts,
+                            errors. This is the agent's audit log.
+    """
+    ran = False
+    if not _table_exists(con, "prospector_seeds"):
+        con.execute(
+            """
+            CREATE TABLE prospector_seeds (
+                seed_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                seed_type       VARCHAR NOT NULL,   -- peer_fund | confirmed_lp | query_template
+                value           VARCHAR NOT NULL,
+                geography       VARCHAR,
+                enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+                origin          VARCHAR NOT NULL DEFAULT 'default',  -- default | expansion:<name> | manual
+                last_mined_at   TIMESTAMPTZ,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        con.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_prospector_seeds_value "
+            "ON prospector_seeds(seed_type, value)"
+        )
+        ran = True
+    if not _table_exists(con, "prospector_candidates"):
+        con.execute(
+            """
+            CREATE TABLE prospector_candidates (
+                candidate_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                investor_name   VARCHAR NOT NULL,
+                name_key        VARCHAR NOT NULL UNIQUE,
+                entity_type     VARCHAR,
+                geography       VARCHAR,
+                discovery_evidence VARCHAR,      -- the snippet that surfaced them
+                source_url      VARCHAR,
+                run_id          VARCHAR,
+                seed            VARCHAR,          -- which seed/query found them
+                status          VARCHAR NOT NULL DEFAULT 'review',
+                    -- qualified | review | rejected | promoted | dismissed
+                verdict_reason  VARCHAR,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prospector_candidates_status "
+            "ON prospector_candidates(status)"
+        )
+        ran = True
+    if not _table_exists(con, "prospector_runs"):
+        con.execute(
+            """
+            CREATE TABLE prospector_runs (
+                run_id          VARCHAR PRIMARY KEY,
+                status          VARCHAR NOT NULL DEFAULT 'running',
+                    -- running | completed | failed
+                trigger         VARCHAR NOT NULL DEFAULT 'manual',   -- manual | scheduled
+                seeds_json      JSON,
+                queries_used    INTEGER NOT NULL DEFAULT 0,
+                results_seen    INTEGER NOT NULL DEFAULT 0,
+                candidates_found INTEGER NOT NULL DEFAULT 0,
+                new_candidates  INTEGER NOT NULL DEFAULT 0,
+                qualified       INTEGER NOT NULL DEFAULT 0,
+                review          INTEGER NOT NULL DEFAULT 0,
+                rejected        INTEGER NOT NULL DEFAULT 0,
+                promoted        INTEGER NOT NULL DEFAULT 0,
+                seeds_added     INTEGER NOT NULL DEFAULT 0,
+                error           VARCHAR,
+                started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                completed_at    TIMESTAMPTZ
+            )
+            """
+        )
+        ran = True
+    return ran
+
+
+def migrate_outreach_log(con) -> bool:
+    """
+    Add outreach_log — the historical record of who we already emailed.
+
+    Backfilled from past_outreach/*.eml (one row per recipient email per send)
+    and appended to when Gmail drafts are marked sent. Deduped by (email, sent_at).
+    The Prospector consults recipient name_keys here so it never re-surfaces
+    someone we already contacted, and the funnel counts contacted from it.
+    """
+    if _table_exists(con, "outreach_log"):
+        return False
+    con.execute(
+        """
+        CREATE TABLE outreach_log (
+            log_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            recipient_email VARCHAR NOT NULL,
+            recipient_name  VARCHAR,
+            name_key        VARCHAR,
+            company_domain  VARCHAR,
+            subject         VARCHAR,
+            sent_at         TIMESTAMPTZ,
+            source          VARCHAR NOT NULL DEFAULT 'eml_backfill',
+            source_file     VARCHAR,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_outreach_log_email ON outreach_log(recipient_email)"
+    )
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_outreach_log_name_key ON outreach_log(name_key)"
+    )
+    return True
+
+
 def migrate_allocator_contacts_v2(con) -> bool:
     """
     Add twitter_url and channels_json to allocator_contacts.

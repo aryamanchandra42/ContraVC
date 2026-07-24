@@ -223,9 +223,12 @@ def run_signal_extraction(con) -> Dict[str, int]:
         alloc_meta[aid] = {"allocator_type": atype or "unknown", "geography": geo or "unknown", "hq_country": hq or ""}
 
     icp_scores: Dict[str, Dict[str, Any]] = {}
+    from agents.scoring.icp_spec import ICP_VERSION
+
     for aid, s2, s4, fit in con.execute(
         "SELECT CAST(allocator_id AS VARCHAR), s2_emerging_manager, s4_decision_speed, fit_score "
-        "FROM icp_scores WHERE icp_version = '4.1'"
+        "FROM icp_scores WHERE icp_version = ?",
+        [ICP_VERSION],
     ).fetchall():
         icp_scores[aid] = {"s2_em": s2 or 0.20, "s4_speed": s4 or 0.40, "fit_score": fit or 0.0}
 

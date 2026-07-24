@@ -224,7 +224,6 @@ def _get_gate_llm_client(screening_mode: str = "institutional"):
       3. OPENAI_API_KEY → gpt-4o
       4. PULSE_LLM_PROVIDER default (Groq / etc.)
 
-    NVIDIA NIM is used upstream via knowledge_enrich.py — not as the default verdict model.
     """
     import os
     from agents.research.llm_client import (
