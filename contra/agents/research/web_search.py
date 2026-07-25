@@ -89,6 +89,21 @@ def _cache_key(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _synthesis_url(provider: str, query: str) -> str:
+    """
+    Pseudo-URL for a provider's synthesized answer (no citations parsed).
+
+    Must be unique per query: callers that merge multi-query results dedupe by
+    URL, so a constant placeholder silently collapses N queries into one result.
+    """
+    return f"{provider}://web-search/{_cache_key(query)[:16]}"
+
+
+def is_synthesis_url(url: str) -> bool:
+    """True for a provider synthesis pseudo-URL rather than a real web source."""
+    return "://web-search/" in (url or "")
+
+
 def _cache_ttl_seconds() -> Optional[float]:
     """TTL for research cache entries. RESEARCH_CACHE_TTL_DAYS=0 disables expiry."""
     raw = os.environ.get("RESEARCH_CACHE_TTL_DAYS", "30").strip()
@@ -327,7 +342,7 @@ class OpenAIWebSearchProvider:
         if text and not text.lower().startswith("no relevant results"):
             results.append(SearchResult(
                 title=f"Web synthesis: {query}",
-                url="openai://web-search",
+                url=_synthesis_url("openai", query),
                 snippet=text[:400],
                 score=1.0,
                 raw_content=text,
@@ -500,7 +515,7 @@ class AnthropicWebSearchProvider:
         if not results and text and text != "No relevant results.":
             results.append(SearchResult(
                 title=query,
-                url="anthropic://web-search",
+                url=_synthesis_url("anthropic", query),
                 snippet=text[:1000],
                 score=1.0,
                 raw_content=text,

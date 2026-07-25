@@ -6,7 +6,7 @@ Both the manual API trigger and the interval scheduler go through
 try_start_run so they can never clash.
 
 Env:
-  PROSPECTOR_AUTORUN         "true" (default) — run automatically on a timer
+  PROSPECTOR_AUTORUN         "false" (default) — set "true" to run on a timer
   PROSPECTOR_INTERVAL_HOURS  24 (default)     — hours between scheduled runs
   PROSPECTOR_BOOT_DELAY_SEC  180 (default)    — wait after API start before
                                                 the first scheduled run
@@ -95,7 +95,8 @@ def try_start_run(
 
 
 def _autorun_enabled() -> bool:
-    return os.environ.get("PROSPECTOR_AUTORUN", "true").lower().strip() in (
+    # Default off — scheduled mining burns LLM/search credits; opt in explicitly.
+    return os.environ.get("PROSPECTOR_AUTORUN", "false").lower().strip() in (
         "1", "true", "yes", "on",
     )
 

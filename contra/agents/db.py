@@ -21,12 +21,12 @@ ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "contra.duckdb"
 SCHEMA_DIR = ROOT / "schema"
 
-_MOTHERDUCK_TOKEN = os.getenv("MOTHERDUCK_TOKEN", "").strip()
 _MOTHERDUCK_DB = "md:contra"
 
 
 def _is_cloud() -> bool:
-    return bool(_MOTHERDUCK_TOKEN)
+    # Read at call time so .env loaded in api.main is visible.
+    return bool(os.getenv("MOTHERDUCK_TOKEN", "").strip())
 
 
 def _recover_corrupt_wal(path: Path) -> bool:
@@ -107,6 +107,7 @@ def _run_migrations(con: duckdb.DuckDBPyConnection) -> None:
         migrate_allocator_contacts_v2,
         migrate_lead_scorecards,
         migrate_prospector,
+        migrate_prospector_cascade,
         migrate_outreach_log,
     )
     migrate_icp_scores_v41(con)
@@ -122,6 +123,7 @@ def _run_migrations(con: duckdb.DuckDBPyConnection) -> None:
     migrate_allocator_contacts_v2(con)
     migrate_lead_scorecards(con)
     migrate_prospector(con)
+    migrate_prospector_cascade(con)
     migrate_outreach_log(con)
 
 

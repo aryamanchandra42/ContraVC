@@ -49,8 +49,9 @@ def list_runs(top: int = Query(20, ge=1, le=100), con=Depends(get_db)) -> List[D
     rows = con.execute(
         """
         SELECT run_id, status, trigger, seeds_json, queries_used, results_seen,
-               candidates_found, new_candidates, qualified, review, rejected,
-               promoted, seeds_added, error,
+               docs_fetched, harvested, candidates_found, new_candidates,
+               resolved, preranked, corroborated, gated,
+               qualified, review, rejected, promoted, seeds_added, error,
                CAST(started_at AS VARCHAR) AS started_at,
                CAST(completed_at AS VARCHAR) AS completed_at
         FROM prospector_runs
@@ -87,8 +88,11 @@ def list_candidates(
 
     sql = """
         SELECT CAST(candidate_id AS VARCHAR) AS candidate_id, investor_name, name_key,
-               entity_type, geography, discovery_evidence, source_url, run_id,
-               status, verdict_reason,
+               entity_type, geography, discovery_evidence, source_url, source_domain,
+               run_id, status, verdict_reason,
+               stage, prerank_score, prerank_checks_json, source_diversity,
+               corroborated, corroboration_json, gate_verdict,
+               CAST(revisit_date AS VARCHAR) AS revisit_date,
                CAST(created_at AS VARCHAR) AS created_at,
                CAST(updated_at AS VARCHAR) AS updated_at
         FROM prospector_candidates
@@ -98,12 +102,21 @@ def list_candidates(
     if status:
         sql += " AND status = ?"
         params.append(status)
-    sql += " ORDER BY updated_at DESC LIMIT ?"
+    # Best evidence first: corroborated candidates, then by prerank score.
+    sql += " ORDER BY corroborated DESC, prerank_score DESC NULLS LAST, updated_at DESC LIMIT ?"
     params.append(top)
 
     rows = con.execute(sql, params).fetchall()
     cols = [d[0] for d in con.description]
     items = [dict(zip(cols, r)) for r in rows]
+
+    for item in items:
+        for field in ("prerank_checks_json", "corroboration_json"):
+            if isinstance(item.get(field), str):
+                try:
+                    item[field] = json.loads(item[field])
+                except json.JSONDecodeError:
+                    item[field] = None
 
     cards = scorecards_for_keys(con, [i["name_key"] for i in items])
     for item in items:
@@ -116,45 +129,121 @@ class CandidateAction(BaseModel):
     note: Optional[str] = None
 
 
+class CandidateApproval(BaseModel):
+    override: bool = False  # proceed even when the gate returns NO
+
+
 def _get_candidate(con, candidate_id: str) -> Dict[str, Any]:
     row = con.execute(
         "SELECT CAST(candidate_id AS VARCHAR), investor_name, name_key, entity_type, "
-        "geography, discovery_evidence, source_url, status "
+        "geography, discovery_evidence, source_url, status, corroboration_json "
         "FROM prospector_candidates WHERE CAST(candidate_id AS VARCHAR) = ?",
         [candidate_id],
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Candidate not found")
     keys = ["candidate_id", "investor_name", "name_key", "entity_type",
-            "geography", "discovery_evidence", "source_url", "status"]
+            "geography", "discovery_evidence", "source_url", "status",
+            "corroboration_json"]
     return dict(zip(keys, row))
 
 
-@router.post("/prospector/candidates/{candidate_id}/approve")
-def approve_candidate(candidate_id: str, con=Depends(get_db)) -> Dict[str, Any]:
-    """Manually promote a review candidate into the CRM."""
-    from contra.crm.writer import _insert_lead
+def _analyst_facts(cand: Dict[str, Any]) -> List[str]:
+    """Stage 4 corroboration quotes, as the gate's analyst-fact channel."""
+    raw = cand.get("corroboration_json")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            raw = None
+    if not isinstance(raw, list):
+        return []
+    facts = []
+    for entry in raw[:2]:
+        if isinstance(entry, dict) and entry.get("quote"):
+            facts.append(
+                f"{cand['investor_name']}: {entry['quote']} "
+                f"(source: {entry.get('url', '')})"
+            )
+    return facts
 
+
+@router.post("/prospector/candidates/{candidate_id}/approve")
+def approve_candidate(
+    candidate_id: str,
+    body: Optional[CandidateApproval] = None,
+    con=Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Promote a candidate into the CRM — through the LP gate, not around it.
+
+    Previously this inserted straight into crm_leads, so a manually approved
+    candidate arrived with no verdict, no confidence and no scorecard, and was
+    indistinguishable in the CRM from a screened lead. Running the gate here is
+    what makes "every CRM lead has a gate verdict" true rather than aspirational.
+
+    A NO is reported back with the gate's reasoning and requires an explicit
+    override, so the analyst keeps the final say but has to make it deliberately.
+    """
+    from contra.crm.writer import add_lead_from_gate
+    from contra.gate.runner import run_gate
+    from contra.scorecard import save_scorecard_from_gate
+
+    body = body or CandidateApproval()
     cand = _get_candidate(con, candidate_id)
+
     try:
-        lead = _insert_lead(con, {
-            "investor_name": cand["investor_name"],
-            "investor_type": cand.get("entity_type"),
-            "investor_location": cand.get("geography"),
-            "investor_details": f"Approved from Prospector queue. {cand.get('discovery_evidence') or ''}"[:800],
-            "pipeline_stage": "Prospect",
-            "status": "active",
-            "source_file": cand.get("source_url"),
-        }, source="prospector")
+        result = run_gate(
+            con, cand["investor_name"],
+            analyst_facts=_analyst_facts(cand),
+            compact_web=True,
+            screening_mode="institutional",
+        )
+    except ValueError as exc:
+        # Hard block — already in CRM, dismissed, or blacklisted.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Gate failed while approving %s", cand["investor_name"])
+        raise HTTPException(status_code=502, detail="Gate screening failed") from exc
+
+    verdict = "yes" if result.yes else ("review" if result.is_review else "no")
+    try:
+        save_scorecard_from_gate(con, result)
+    except Exception:
+        logger.warning("Scorecard save failed for %s", cand["investor_name"], exc_info=True)
+
+    if verdict == "no" and not body.override:
+        con.execute(
+            "UPDATE prospector_candidates SET gate_verdict = ?, verdict_reason = ?, "
+            "stage = 'gate', updated_at = NOW() WHERE CAST(candidate_id AS VARCHAR) = ?",
+            [verdict, (result.summary or "")[:800], candidate_id],
+        )
+        raise HTTPException(status_code=409, detail={
+            "message": "Gate returned NO — re-send with override to promote anyway.",
+            "verdict": verdict,
+            "summary": result.summary,
+            "reasons": result.reasons,
+            "session_id": result.session_id,
+        })
+
+    try:
+        lead = add_lead_from_gate(con, result.session_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     con.execute(
-        "UPDATE prospector_candidates SET status = 'promoted', updated_at = NOW() "
+        "UPDATE prospector_candidates SET status = 'promoted', gate_verdict = ?, "
+        "stage = 'gate', verdict_reason = ?, updated_at = NOW() "
         "WHERE CAST(candidate_id AS VARCHAR) = ?",
-        [candidate_id],
+        [verdict, (result.summary or "")[:800], candidate_id],
     )
-    return {"ok": True, "lead_id": lead.lead_id}
+    return {
+        "ok": True,
+        "lead_id": lead.lead_id,
+        "gate_verdict": verdict,
+        "overridden": verdict == "no",
+        "summary": result.summary,
+    }
 
 
 @router.post("/prospector/candidates/{candidate_id}/dismiss")
@@ -184,7 +273,8 @@ def mine_syndicate(con=Depends(get_db)) -> Dict[str, Any]:
     try:
         return promote_syndicate_fund_lps(con)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+        logger.exception("Syndicate mine failed")
+        raise HTTPException(status_code=500, detail="Syndicate mining failed") from exc
 
 
 @router.post("/prospector/backfill-outreach")
@@ -195,7 +285,8 @@ def backfill_outreach(con=Depends(get_db)) -> Dict[str, Any]:
     try:
         return backfill_past_outreach(con)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+        logger.exception("Outreach backfill failed")
+        raise HTTPException(status_code=500, detail="Outreach backfill failed") from exc
 
 
 @router.get("/prospector/seeds")

@@ -685,6 +685,85 @@ def migrate_prospector(con) -> bool:
     return ran
 
 
+def migrate_prospector_cascade(con) -> bool:
+    """
+    Add the 5-stage cascade columns to the Prospector tables.
+
+    The miner is a cascade: each stage is cheaper than the next and rejects on a
+    different failure mode, so the expensive LP gate only ever sees survivors.
+
+        1 HARVEST      document-level discovery; many LPs per fetched page
+        2 RESOLVE      identity + non-entity rejection (zero API)
+        3 PRERANK      structural disqualifiers + ranking (zero API)
+        4 CORROBORATE  independent-domain commitment quote (1 search each)
+        5 ADJUDICATE   full LP gate
+
+    prospector_runs gains one counter per stage so a run that yields no leads
+    reports exactly which stage the funnel died at, instead of being a mystery.
+
+    prospector_candidates gains the evidence each stage produces: the verbatim
+    span and domain that surfaced the name (Stage 1), the prerank score and which
+    ICP checks fired (Stage 3), and the independent corroborating quotes (Stage 4).
+    Storing spans rather than paraphrases is what lets Stages 3-5 test against
+    literal text.
+
+    Safe to re-run: ALTER TABLE ... ADD COLUMN IF NOT EXISTS.
+
+    NOTE: no NOT NULL on these columns. DuckDB rejects ADD COLUMN with any
+    constraint ("Adding columns with constraints not yet supported"), and a
+    single raised migration aborts every migration after it. DEFAULT alone still
+    backfills existing rows, and the writers here always supply a value.
+    """
+    ran = False
+
+    if _table_exists(con, "prospector_runs"):
+        existing = {
+            r[0] for r in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'prospector_runs'"
+            ).fetchall()
+        }
+        for col, ddl in [
+            ("harvested",    "INTEGER DEFAULT 0"),
+            ("docs_fetched", "INTEGER DEFAULT 0"),
+            ("resolved",     "INTEGER DEFAULT 0"),
+            ("preranked",    "INTEGER DEFAULT 0"),
+            ("corroborated", "INTEGER DEFAULT 0"),
+            ("gated",        "INTEGER DEFAULT 0"),
+        ]:
+            if col not in existing:
+                con.execute(
+                    f"ALTER TABLE prospector_runs ADD COLUMN IF NOT EXISTS {col} {ddl}"
+                )
+                ran = True
+
+    if _table_exists(con, "prospector_candidates"):
+        existing = {
+            r[0] for r in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'prospector_candidates'"
+            ).fetchall()
+        }
+        for col, ddl in [
+            ("source_domain",       "VARCHAR"),
+            ("stage",               "VARCHAR"),   # harvest|resolve|prerank|corroborate|gate
+            ("prerank_score",       "INTEGER"),
+            ("prerank_checks_json", "JSON"),
+            ("source_diversity",    "INTEGER DEFAULT 0"),
+            ("corroborated",        "BOOLEAN DEFAULT FALSE"),
+            ("corroboration_json",  "JSON"),
+            ("gate_verdict",        "VARCHAR"),
+            ("revisit_date",        "DATE"),
+        ]:
+            if col not in existing:
+                con.execute(
+                    f"ALTER TABLE prospector_candidates ADD COLUMN IF NOT EXISTS {col} {ddl}"
+                )
+                ran = True
+
+    return ran
+
+
 def migrate_outreach_log(con) -> bool:
     """
     Add outreach_log — the historical record of who we already emailed.

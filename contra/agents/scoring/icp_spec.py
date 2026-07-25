@@ -121,6 +121,8 @@ E5_HEALTHCARE_PHRASES = [
     "healthcare only", "healthcare focus", "life sciences only",
     "lifesciences only", "life science focus", "biotech only",
     "biotech focus", "medical only", "pharma focus",
+    # Spelling variants seen in real client rejections (B-FLEXION: "lifesciences focus")
+    "lifesciences focus", "life sciences focus",
 ]
 
 # E6: Geography-Locked Non-Qualifying
@@ -147,6 +149,10 @@ E8_NO_EM_PHRASES = [
     "they dont seem to invest in emerging managers",
     "no evidence of emerging manager", "established track record only",
     "proven track record required",
+    # Real client wording (ODDO BHF: "No emerging VC"; Olayan: "no emerging
+    # venture capital focus"). These are self-negated phrases, so the prerank
+    # negation guard leaves their polarity intact.
+    "no emerging vc", "no emerging venture capital", "no emerging venture",
 ]
 
 # E9: Check Size Mismatch (min ticket > $30M or max < $250K)
@@ -162,6 +168,9 @@ E10_DIRECT_ONLY_PHRASES = [
     "no fund investments", "exclusively direct",
     "direct investments vs fund", "does not take lp positions",
     "does not invest in vc funds",
+    # Real client wording (Anupam Mittal: "runs own fund and doesnt invest as an LP")
+    "does not invest as an lp", "doesnt invest as an lp", "doesn't invest as an lp",
+    "not invest as an lp",
 ]
 
 # E11: Blacklist / Prior Contact — handled by client_status flag

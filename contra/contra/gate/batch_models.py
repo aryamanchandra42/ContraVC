@@ -1,10 +1,28 @@
-"""Pydantic models for batch GATE processing (CSV upload)."""
+"""Pydantic models for batch GATE processing (CSV upload, prospector mining)."""
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
+
+
+@runtime_checkable
+class ScreeningRecord(Protocol):
+    """
+    What `batch_gate_run` needs from a record, regardless of where it came from.
+
+    Keeping this a Protocol rather than a base class is what lets the batch runner
+    serve both NFX xlsx uploads and mined prospector candidates without either
+    knowing about the other.
+    """
+
+    investor_name: str
+    firm_name: Optional[str]
+    nfx_url: Optional[str]
+
+    def to_analyst_facts(self) -> List[str]: ...
+    def to_nfx_context_string(self) -> str: ...
 
 
 class NfxInvestorRecord(BaseModel):
@@ -69,6 +87,38 @@ class NfxInvestorRecord(BaseModel):
         if self.locations:
             lines.append(f"Investment locations listed: {self.locations}")
         return "\n".join(lines)
+
+
+class ProspectRecord(BaseModel):
+    """
+    One mined LP candidate to screen — the prospector's analogue of NfxInvestorRecord.
+
+    `commitment_facts` are the independently corroborated commitment quotes from
+    cascade Stage 4, and they are the whole point of this record. The gate scores
+    at most TWO analyst facts toward its signal bar, so nothing else may be added
+    to that list: a contextual fact placed first would silently crowd out a real
+    commitment quote and cost the candidate a signal it had earned.
+
+    Discovery context is deliberately NOT passed through `to_nfx_context_string`.
+    That channel carries an explicit "NFX Signal lists DIRECT/angel activity, not
+    fund LP commitments" caveat into the verdict prompt, which is exactly the
+    wrong framing for an institutional LP found in a fund-close announcement.
+    """
+
+    investor_name: str
+    firm_name: Optional[str] = None
+    # Always None. Present so the record satisfies ScreeningRecord.
+    nfx_url: Optional[str] = None
+
+    entity_type: Optional[str] = None
+    geography: Optional[str] = None
+    commitment_facts: List[str] = Field(default_factory=list)
+
+    def to_analyst_facts(self) -> List[str]:
+        return [f for f in self.commitment_facts if f.strip()][:2]
+
+    def to_nfx_context_string(self) -> str:
+        return ""
 
 
 BatchVerdict = Literal["yes", "review", "no", "skipped", "error"]

@@ -29,7 +29,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from contra.gate.batch_models import BatchGateItem, BatchGateReport, NfxInvestorRecord
+from contra.gate.batch_models import (
+    BatchGateItem,
+    BatchGateReport,
+    NfxInvestorRecord,
+    ScreeningRecord,
+)
 from contra.gate.runner import run_gate
 
 logger = logging.getLogger(__name__)
@@ -48,12 +53,13 @@ _BATCH_REGISTRY: Dict[str, BatchGateReport] = {}
 
 def batch_gate_run(
     con,
-    records: List[NfxInvestorRecord],
+    records: List[ScreeningRecord],
     source_type: str = "signal-nfx",
     delay_seconds: float = 3.0,
     max_retries: int = 3,
     batch_id: Optional[str] = None,
     compact_web: bool = True,
+    screening_mode: str = "nfx_individual",
 ) -> BatchGateReport:
     """
     Run the full GATE pipeline on each record, with rate limiting.
@@ -63,11 +69,15 @@ def batch_gate_run(
 
     Args:
         con: DuckDB connection.
-        records: List of NfxInvestorRecord objects to screen.
+        records: Records to screen — anything satisfying ScreeningRecord
+            (NfxInvestorRecord for uploads, ProspectRecord for mined candidates).
         source_type: Upload source type (e.g. "signal-nfx").
         delay_seconds: Base sleep between gate calls (LLM rate limiting).
         max_retries: Max retries on RuntimeError (LLM rate limit hit).
         batch_id: Optional fixed batch ID (for resuming a run).
+        screening_mode: Gate strictness. "nfx_individual" assumes the subject is
+            an angel and returns NO for a GP with no LP history — correct for NFX
+            Signal rows, wrong for institutional LPs, which need "institutional".
     """
     batch_id = batch_id or uuid.uuid4().hex
     BATCH_DIR.mkdir(parents=True, exist_ok=True)
@@ -108,15 +118,21 @@ def batch_gate_run(
     if workers <= 1 or len(pending) <= 1:
         for record in pending:
             _record_item(
-                _screen_one(con, record, delay_seconds, max_retries, compact_web=compact_web)
+                _screen_one(
+                    con, record, delay_seconds, max_retries,
+                    compact_web=compact_web, screening_mode=screening_mode,
+                )
             )
     else:
-        def _task(record: NfxInvestorRecord) -> BatchGateItem:
+        def _task(record: ScreeningRecord) -> BatchGateItem:
             # Per-thread DuckDB cursor — duplicates the connection for safe
             # concurrent use; falls back to the shared con if unavailable.
             cur = con.cursor() if hasattr(con, "cursor") else con
             try:
-                return _screen_one(cur, record, delay_seconds, max_retries, compact_web=compact_web)
+                return _screen_one(
+                    cur, record, delay_seconds, max_retries,
+                    compact_web=compact_web, screening_mode=screening_mode,
+                )
             finally:
                 if cur is not con:
                     try:
@@ -188,14 +204,18 @@ def mark_crm_added(batch_id: str, investor_name: str) -> bool:
 
 def _screen_one(
     con,
-    record: NfxInvestorRecord,
+    record: ScreeningRecord,
     delay_seconds: float,
     max_retries: int,
     compact_web: bool = True,
+    screening_mode: str = "nfx_individual",
 ) -> BatchGateItem:
     """Screen a single investor through GATE with retry logic."""
     name = record.investor_name
     analyst_facts = record.to_analyst_facts()
+    # An empty context string must not reach the gate as "" — _parse_nfx_context
+    # and the NFX prompt branches key off its presence.
+    nfx_context = record.to_nfx_context_string() or None
 
     for attempt in range(max_retries + 1):
         try:
@@ -204,8 +224,8 @@ def _screen_one(
                 analyst_facts=analyst_facts,
                 nfx_url=record.nfx_url,
                 compact_web=compact_web,
-                nfx_context=record.to_nfx_context_string(),
-                screening_mode="nfx_individual",
+                nfx_context=nfx_context,
+                screening_mode=screening_mode,
             )
             verdict = "yes" if result.yes else ("review" if result.is_review else "no")
 
