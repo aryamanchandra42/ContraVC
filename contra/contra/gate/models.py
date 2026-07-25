@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +197,25 @@ GateVerdict = GateResult
 _EVIDENCE_LINE_MAX = 280
 _SUMMARY_MAX = 400
 
+_EVIDENCE_FIELDS = (
+    "c1_evidence", "c2_evidence", "c3_evidence", "c4_evidence",
+    "web_em_ai_evidence", "em_appetite_evidence", "fund_i_appetite_evidence",
+    "ai_tech_appetite_evidence", "venture_appetite_evidence",
+    "geography_appetite_evidence", "archetype_evidence", "negative_evidence",
+    "similarity_rationale",
+)
+
+
+def _truncate(value: Any, limit: int) -> Any:
+    """Clip an over-long LLM string to `limit`, ending on a word boundary."""
+    if not isinstance(value, str) or len(value) <= limit:
+        return value
+    clipped = value[: limit - 1]
+    cut = clipped.rfind(" ")
+    if cut > limit * 0.6:  # only honour the word boundary if it is not far back
+        clipped = clipped[:cut]
+    return clipped.rstrip(" ,;:—-") + "…"
+
 
 class GateExplanation(BaseModel):
     """
@@ -217,6 +236,22 @@ class GateExplanation(BaseModel):
     online_evidence: List[str] = Field(default_factory=list, max_length=6)
     conflicts: List[str] = Field(default_factory=list, max_length=4)
     summary: str = Field(max_length=_SUMMARY_MAX)
+
+    # Length caps are a token-budget guard, not a correctness requirement, so an
+    # over-long string must never invalidate the response. Before these ran, a
+    # verbose summary raised `string_too_long` and threw away an otherwise complete
+    # analysis — including a fully-evidenced YES — forcing a retry that paid for the
+    # same expensive research a second time. `mode="before"` clips the value ahead of
+    # the max_length check, so the cap still holds as an invariant downstream.
+    @field_validator("summary", mode="before")
+    @classmethod
+    def _clip_summary(cls, v: Any) -> Any:
+        return _truncate(v, _SUMMARY_MAX)
+
+    @field_validator(*_EVIDENCE_FIELDS, mode="before")
+    @classmethod
+    def _clip_evidence(cls, v: Any) -> Any:
+        return _truncate(v, _EVIDENCE_LINE_MAX)
 
     # LLM-assessed core gates from web evidence — fills gaps the evaluator left as unknown.
     # Flat fields keep the schema simple for small models.

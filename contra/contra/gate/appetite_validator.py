@@ -55,6 +55,19 @@ _CONFIRMED_MISFIT_FLAGS = {
     "pe_only", "direct_only", "no_venture", "angel_only", "nfx_angel_only",
 }
 
+# Archetypes whose defining behaviour IS committing capital into other funds. A C1
+# FAIL alongside one of these is internally contradictory and cannot be trusted.
+#
+# Observed failure: fund-of-funds were returned with archetype="fund_of_funds" and
+# c1_status="fail" in the SAME response — the model reasoning "they manage venture
+# funds, therefore they are a GP, therefore not an LP". Rule 3c could not catch it
+# because it only treated "unknown" as unconfirmed, so the NO became final for
+# Horsley Bridge, Top Tier and Greenspring. The prompt now states the FoF case
+# explicitly; this set is the deterministic backstop if that guidance is ever lost.
+_LP_BY_CONSTRUCTION = {
+    "fund_of_funds", "emerging_manager_specialist", "institutional_lp",
+}
+
 
 def _has_external_lp_commits(evidence_list: List[str]) -> bool:
     """Return True if any allocation_evidence entry contains explicit LP commitment language."""
@@ -224,22 +237,39 @@ def validate_and_patch(
     ):
         confirmed_misfit = bool(set(negative_flags) & _CONFIRMED_MISFIT_FLAGS)
         c1_unconfirmed = explanation.c1_status in ("unknown", None)
-        if c1_unconfirmed and not confirmed_misfit:
+        # A C1 FAIL that contradicts a fund-committing archetype is not a real fail.
+        archetype = (explanation.archetype or "").strip().lower()
+        contradictory_fail = (
+            explanation.c1_status == "fail" and archetype in _LP_BY_CONSTRUCTION
+        )
+        if (c1_unconfirmed or contradictory_fail) and not confirmed_misfit:
             updates["llm_recommendation"] = "review"
             if explanation.confidence == "high":
                 updates["confidence"] = "medium"
             if not explanation.primary_blocker:
                 updates["primary_blocker"] = ""
             summary = updates.get("summary", explanation.summary) or ""
-            if "flip to yes" not in summary.lower():
+            if contradictory_fail:
+                # The model's own prose argues the entity is a GP, so leaving the
+                # summary untouched hands the analyst a REVIEW verdict justified by
+                # text that says "not a limited partner". Say why we disagreed.
+                if "commits capital into funds" not in summary.lower():
+                    updates["summary"] = (
+                        f"{summary.rstrip()} SCREENING NOTE: a {archetype.replace('_', ' ')} "
+                        "commits capital into funds, so entity type is not a "
+                        "disqualifier here — judge cheque size, emerging-manager "
+                        "appetite and geography instead."
+                    ).strip()
+            elif "flip to yes" not in summary.lower():
                 updates["summary"] = (
                     f"{summary.rstrip()} "
                     "Flip to YES if: documented LP commitment to at least one VC fund "
                     "(emerging-manager or Fund I) is confirmed."
                 ).strip()
             conflicts.append(
-                "Verdict upgraded NO→REVIEW: institutional mode, C1 unconfirmed, "
-                "no confirmed direct-only/PE-only misfit"
+                f"Verdict upgraded NO→REVIEW: institutional mode, "
+                f"{'C1 FAIL contradicts ' + archetype + ' archetype' if contradictory_fail else 'C1 unconfirmed'}"
+                ", no confirmed direct-only/PE-only misfit"
             )
 
     # --- Rule 3b: nfx_individual + zero-evidence REVIEW → force NO ---------------

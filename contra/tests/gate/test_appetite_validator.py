@@ -267,6 +267,106 @@ def test_institutional_thin_evidence_no_upgraded_to_review():
     assert "flip to yes" in result.summary.lower()
 
 
+def test_overlong_summary_is_clipped_not_rejected():
+    """
+    A verbose LLM summary must be clipped, never raise.
+
+    Observed live: a fully-evidenced YES for a Korean conglomerate with nine
+    documented fund LP commitments was discarded because its summary ran to 431
+    characters, raising `string_too_long`. The retry re-ran the same expensive
+    research to reach the same conclusion.
+    """
+    long_summary = (
+        "Samyang Chemical Group is a strong institutional LP match with documented "
+        "commitments across nine external venture funds. " + ("evidence " * 60)
+    )
+    assert len(long_summary) > 400
+
+    expl = _base_explanation(llm_recommendation="yes", summary=long_summary)
+    assert len(expl.summary) <= 400
+    assert expl.summary.startswith("Samyang Chemical Group is a strong institutional LP")
+    assert expl.summary.endswith("…")
+
+
+def test_overlong_evidence_line_is_clipped():
+    expl = _base_explanation(c1_evidence="LP in " + ("Neon Fund, " * 60))
+    assert len(expl.c1_evidence) <= 280
+
+
+def test_summary_within_limit_is_untouched():
+    expl = _base_explanation(summary="Short and clean. Two sentences here.")
+    assert expl.summary == "Short and clean. Two sentences here."
+
+
+def test_fund_of_funds_c1_fail_no_upgraded_to_review():
+    """
+    A C1 FAIL alongside a fund-committing archetype is self-contradictory → REVIEW.
+
+    Live regression: Horsley Bridge, Top Tier and Greenspring were each rejected with
+    archetype="fund_of_funds" and c1_status="fail" in the same response, the model
+    reasoning "they manage venture funds, therefore they are a GP, therefore not an
+    LP". Rule 3c missed it because "fail" is not "unknown", so the NO went final —
+    silently discarding the highest-priority LP type in the ICP spec.
+    """
+    expl = _base_explanation(
+        llm_recommendation="no",
+        confidence="high",
+        c1_status="fail",
+        archetype="fund_of_funds",
+        negative_flags=[],
+        summary="Horsley Bridge is a fund-of-funds manager, not an LP in venture funds.",
+    )
+    result = validate_and_patch(expl, None, "web context", "institutional")
+    assert result.llm_recommendation == "review"
+    assert result.confidence == "medium"  # high confidence in a wrong NO is downgraded
+    # The model's prose still argues "not an LP", so the summary must explain the
+    # disagreement — otherwise the UI shows REVIEW justified by a rejection.
+    assert "commits capital into funds" in result.summary.lower()
+
+
+def test_thin_evidence_upgrade_keeps_flip_to_yes_hint():
+    """The C1-unknown path keeps its original hint, not the archetype note."""
+    expl = _base_explanation(
+        llm_recommendation="no",
+        confidence="low",
+        c1_status="unknown",
+        negative_flags=["no_fund_lp_history"],
+        summary="India-based investor; no fund LP evidence found.",
+    )
+    result = validate_and_patch(expl, None, "thin", "institutional")
+    assert result.llm_recommendation == "review"
+    assert "flip to yes" in result.summary.lower()
+    assert "commits capital into funds" not in result.summary.lower()
+
+
+def test_fund_of_funds_with_confirmed_misfit_stays_no():
+    """The contradiction override must not rescue a genuine PE-only misfit."""
+    expl = _base_explanation(
+        llm_recommendation="no",
+        confidence="high",
+        c1_status="fail",
+        archetype="fund_of_funds",
+        negative_flags=["pe_only"],
+        summary="Buyout-only fund-of-funds with no venture allocation.",
+    )
+    result = validate_and_patch(expl, None, "web context", "institutional")
+    assert result.llm_recommendation == "no"
+
+
+def test_c1_fail_without_lp_archetype_stays_no():
+    """A plain C1 FAIL with no contradicting archetype is still a final NO."""
+    expl = _base_explanation(
+        llm_recommendation="no",
+        confidence="high",
+        c1_status="fail",
+        archetype="corporate_investor",
+        negative_flags=[],
+        summary="Corporate venture arm investing off the balance sheet only.",
+    )
+    result = validate_and_patch(expl, None, "web context", "institutional")
+    assert result.llm_recommendation == "no"
+
+
 def test_review_with_allocation_evidence_stays_review_in_nfx_individual():
     """
     nfx_individual + REVIEW but has allocation evidence → genuinely ambiguous,

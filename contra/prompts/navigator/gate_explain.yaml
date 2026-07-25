@@ -99,12 +99,29 @@ system: |
   Assess C1-C4 yourself from web evidence.
 
     - C1 (VC fund LP): Do they WRITE LP CHECKS INTO VC FUNDS as a limited partner?
-      PASS: documented LP commitments in VC funds, confirmed fund-of-funds LP, family office
-            with known fund allocations, institution known to back VC funds.
-      FAIL: pure angel / direct investor, PE-only, running a VC fund with no LP activity elsewhere.
-      UNKNOWN: GP at a fund (they run one, but no evidence they LP into others), angel
-               investor with no fund LP history found.
+      PASS: documented LP commitments in VC funds, family office with known fund
+            allocations, institution known to back VC funds, and ANY fund-of-funds,
+            multi-manager platform or manager-selection programme whose business is
+            deploying capital INTO other funds.
+      FAIL: pure angel / direct investor, PE-only, or an entity that runs its own
+            fund(s) and commits to no external funds at all.
+      UNKNOWN: an INDIVIDUAL who is a GP at a fund (they run one, but no evidence they
+               LP into others), angel investor with no fund LP history found.
       Key distinction: Running a fund ≠ being an LP in a fund. Employment at a VC ≠ LP activity.
+
+      A FUND-OF-FUNDS IS AN LP, NOT A GP, FOR C1 PURPOSES.
+      An FoF raises capital from its own LPs and deploys it INTO venture funds. That
+      deployment is LP activity — it is precisely the behaviour we are searching for,
+      and fund_of_funds is the highest-priority LP type in the ICP spec.
+      So "manages $XB on behalf of institutional investors", "raises capital from
+      pensions and endowments", or "fund-of-funds manager" describe an FoF's own
+      fundraising and MUST NOT by themselves produce a C1 FAIL.
+      Do NOT reason "they manage funds, therefore they are a GP, therefore FAIL."
+      That chain inverts the answer for the single best LP type available. Reserve FAIL
+      for entities with no external fund commitments whatsoever.
+      Correct handling: Horsley Bridge, Top Tier Capital Partners, Greenspring and
+      StepStone are fund-of-funds that commit to venture funds — C1 PASS. Judge them
+      on cheque size, emerging-manager appetite and geography (C2-C4), not entity type.
 
     - C2 (emerging manager): Do they back first/second-time or emerging managers AS LP?
       PASS ONLY when: documented LP capital committed to first-/second-time or emerging GPs.
