@@ -9,7 +9,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.deps import get_db
+from api.deps import background_connection, get_db
 from agents.research.lp_prospector import DiscoveryResult, discover_lps, flag_known_candidates
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ def discovery_search(req: DiscoverRequest, con=Depends(get_db)) -> DiscoveryResu
 
 
 @router.post("/discovery/screen", response_model=ScreenResponse)
-def discovery_screen(req: ScreenRequest, con=Depends(get_db)) -> ScreenResponse:
+def discovery_screen(req: ScreenRequest) -> ScreenResponse:
     """
     Push discovered candidates straight into the batch gate pipeline.
 
@@ -87,7 +87,10 @@ def discovery_screen(req: ScreenRequest, con=Depends(get_db)) -> ScreenResponse:
     batch_id = _uuid.uuid4().hex
 
     def _run() -> None:
-        cur = con.cursor() if hasattr(con, "cursor") else con
+        # Derive the worker cursor from the shared connection rather than from a
+        # request-scoped one: get_db() closes the request cursor as soon as this
+        # handler returns, which is long before this thread finishes.
+        cur = background_connection().cursor()
         try:
             batch_gate_run(
                 cur, records,
@@ -98,11 +101,10 @@ def discovery_screen(req: ScreenRequest, con=Depends(get_db)) -> ScreenResponse:
         except Exception as exc:
             logger.error("Discovery screen batch %s failed: %s", batch_id, exc)
         finally:
-            if cur is not con:
-                try:
-                    cur.close()
-                except Exception:
-                    pass
+            try:
+                cur.close()
+            except Exception:
+                pass
 
     threading.Thread(target=_run, name=f"discovery-{batch_id[:8]}", daemon=True).start()
     return ScreenResponse(batch_id=batch_id, total=len(records))

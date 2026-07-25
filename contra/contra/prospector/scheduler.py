@@ -44,6 +44,9 @@ def try_start_run(
     """
     Start a mining run in a background thread if no run is active.
     Returns (run_id, "") on success or (active_run_id, reason) when busy.
+
+    `con` must outlive this call — the run keeps using a cursor derived from it
+    for minutes. Pass the process-shared connection, never a per-request cursor.
     """
     global _active_run_id
     from contra.prospector import run_prospector

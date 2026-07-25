@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.deps import get_db
+from api.deps import background_connection, get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -29,12 +29,14 @@ class RunResponse(BaseModel):
 
 
 @router.post("/prospector/run", response_model=RunResponse)
-def start_run(req: RunRequest, con=Depends(get_db)) -> RunResponse:
+def start_run(req: RunRequest) -> RunResponse:
     """Kick off a mining run in the background; poll /prospector/runs for progress."""
     from contra.prospector.scheduler import try_start_run
 
+    # The run outlives this request, so it needs the long-lived connection —
+    # a get_db() cursor would be closed the moment this handler returns.
     run_id, busy = try_start_run(
-        con,
+        background_connection(),
         trigger="manual",
         max_seeds=req.max_seeds,
         max_queries=req.max_queries,
