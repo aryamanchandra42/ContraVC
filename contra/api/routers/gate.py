@@ -50,7 +50,8 @@ def gate(req: GateRequest, con=Depends(get_db)) -> GateResult:
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+        logger.exception("Gate failed for %s", req.name)
+        raise HTTPException(status_code=500, detail="Gate screening failed") from exc
 
     try:
         from contra.crm.writer import record_gate_review
@@ -75,7 +76,8 @@ def gate_chat(req: ChatRequest, con=Depends(get_db)) -> ChatResponse:
             rescreened=result.rescreened,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+        logger.exception("Gate chat failed for session %s", req.session_id)
+        raise HTTPException(status_code=500, detail="Gate chat failed") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +141,8 @@ def gate_upload(
         from contra.gate.batch import batch_gate_run
         report = batch_gate_run(con, records, source_type=source_type, delay_seconds=delay_seconds)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+        logger.exception("Batch gate upload failed")
+        raise HTTPException(status_code=500, detail="Batch gate run failed") from exc
 
     return report
 
@@ -175,4 +178,5 @@ def gate_batch_crm_add(req: BatchCrmAddRequest, con=Depends(get_db)) -> BatchCrm
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+        logger.exception("Batch CRM add failed for %s", req.investor_name)
+        raise HTTPException(status_code=500, detail="Failed to add lead to CRM") from exc

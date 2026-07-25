@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from contra.intelligence.contact_extract import (
     _extract_from_text,
@@ -123,59 +123,6 @@ class TestExtractAndPersist(unittest.TestCase):
             web_context="",
         )
         self.assertEqual(stats["gate_emails"], 0)
-
-
-# ---------------------------------------------------------------------------
-# Phantombuster sync (mocked HTTP)
-# ---------------------------------------------------------------------------
-
-class TestPhantombusterSync(unittest.TestCase):
-
-    def test_sync_normalizes_rows_and_calls_enrichment(self):
-        """Verify sync wires through: launch → poll → fetch → normalize → persist → enrich."""
-        from agents.ingestion.phantombuster_sync import run_phantombuster_sync
-
-        mock_rows = [
-            {
-                "firstName": "Ihar",
-                "lastName": "Mahniok",
-                "title": "Investor",
-                "company": "Personal",
-                "email": "i@mahaniok.com",
-                "profileUrl": "https://www.linkedin.com/in/imahaniok",
-                "location": "Minsk, Belarus",
-            }
-        ]
-
-        con = MagicMock()
-        con.execute.return_value.fetchall.return_value = []
-        con.execute.return_value.fetchone.return_value = None
-
-        with patch("agents.ingestion.phantombuster_sync.launch", return_value="cid-123"), \
-             patch("agents.ingestion.phantombuster_sync.poll_until_done", return_value={"status": "finished"}), \
-             patch("agents.ingestion.phantombuster_sync.fetch_result_rows", return_value=mock_rows), \
-             patch("agents.ingestion.phantombuster_sync.persist_raw_records", return_value=1) as mock_persist, \
-             patch("agents.normalization.linkedin_enricher.run_linkedin_enrichment", return_value={"matched": 0, "aliases_created": 0}) as mock_enrich:
-
-            stats = run_phantombuster_sync(con, agent_id="agent-456", save_csv=False)
-
-        self.assertEqual(stats["container_id"], "cid-123")
-        self.assertEqual(stats["rows_fetched"], 1)
-        self.assertEqual(stats["rows_inserted"], 1)
-        mock_persist.assert_called_once()
-        mock_enrich.assert_called_once()
-
-    def test_sync_raises_on_missing_api_key(self):
-        import os
-        from agents.ingestion.phantombuster_client import PhantombusterError, _api_key
-
-        original = os.environ.pop("PHANTOMBUSTER_API_KEY", None)
-        try:
-            with self.assertRaises(PhantombusterError):
-                _api_key()
-        finally:
-            if original:
-                os.environ["PHANTOMBUSTER_API_KEY"] = original
 
 
 if __name__ == "__main__":

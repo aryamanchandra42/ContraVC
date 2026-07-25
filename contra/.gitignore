@@ -43,7 +43,7 @@ logs/
 .env
 .env.local
 !.env.example
-env.example
+# Track env.example as the onboarding template (copy → .env)
 
 # OS
 .DS_Store

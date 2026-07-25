@@ -16,6 +16,13 @@ services:
         value: "true"
       - key: PULSE_SEARCH_PROVIDER
         value: tavily
+      # Production hardening — set secrets in the Render dashboard
+      - key: CORS_DEV_REGEX
+        value: "0"
+      - key: PROSPECTOR_AUTORUN
+        value: "false"
+      - key: CONSOLE_PASSWORD
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: MOTHERDUCK_TOKEN

@@ -55,10 +55,10 @@ def discovery_search(req: DiscoverRequest, con=Depends(get_db)) -> DiscoveryResu
     try:
         result = discover_lps(req.query, limit=req.limit, con=con)
     except Exception as exc:
+        logger.exception("Discovery search failed")
         raise HTTPException(
             status_code=503,
-            detail=f"Discovery agent unavailable: {exc}. "
-                   "Requires PULSE_SEARCH_PROVIDER=openai/auto and OPENAI_API_KEY.",
+            detail="Discovery agent unavailable. Check search provider configuration.",
         ) from exc
     flag_known_candidates(con, result.candidates)
     return result

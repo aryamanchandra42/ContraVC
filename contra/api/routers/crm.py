@@ -120,7 +120,8 @@ def gate_add_to_crm(req: GateAddToCrmRequest, con=Depends(get_db)) -> GateAddToC
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+        logger.exception("Gate add-to-crm failed for session %s", req.session_id)
+        raise HTTPException(status_code=500, detail="Failed to add lead to CRM") from exc
 
 
 @router.get("/crm/leads", response_model=List[CrmLead])
@@ -593,7 +594,8 @@ def generate_outreach(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"{type(exc).__name__}: {exc}") from exc
+        logger.exception("Outreach generation failed for lead %s", lead_id)
+        raise HTTPException(status_code=503, detail="Outreach generation unavailable") from exc
 
 
 @router.get("/crm/leads/{lead_id}/outreach")

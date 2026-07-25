@@ -1,0 +1,31 @@
+# contra-web is its own git repository (github.com/ContraVC/contra-web, deployed on
+# Vercel). Ignore it here so the outer repo neither tracks it as a stray gitlink nor
+# reports it as untracked on every status.
+/contra-web/
+
+# DuckDB databases and their write-ahead logs — hundreds of MB, and rebuildable.
+*.duckdb
+*.duckdb.wal
+*.duckdb.wal.corrupt-*
+
+# Secrets
+.env
+.env.local
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Transient analysis output
+backtest_results.jsonl
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
