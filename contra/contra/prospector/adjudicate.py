@@ -133,6 +133,11 @@ def adjudicate(
         cand.verdict_reason = f"{cand.verdict_reason} — deferred, gate budget reached"
 
     from contra.gate.batch import batch_gate_run
+    from contra.prospector.budget import get_meter
+
+    meter = get_meter()
+    if meter is not None:
+        meter.add_gates(len(to_gate))
 
     report = batch_gate_run(
         con,

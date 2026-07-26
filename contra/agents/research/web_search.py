@@ -497,7 +497,7 @@ class AnthropicWebSearchProvider:
         results: List[SearchResult] = []
         seen_urls: set[str] = set()
 
-        # Each citation → one SearchResult
+        # Each citation → one SearchResult (real URLs — required for Stage 4)
         for c in citations:
             url = c.get("url", "")
             if not url or url in seen_urls:
@@ -511,15 +511,20 @@ class AnthropicWebSearchProvider:
                 raw_content=c.get("snippet") or "",
             ))
 
-        # Fallback: if no citations parsed, wrap the whole text as one result
-        if not results and text and text != "No relevant results.":
-            results.append(SearchResult(
-                title=query,
-                url=_synthesis_url("anthropic", query),
-                snippet=text[:1000],
-                score=1.0,
-                raw_content=text,
-            ))
+        # Always keep the synthesized brief: harvest extracts LP names from it,
+        # and citation snippets alone are often too thin without Tavily raw_content.
+        if text and text != "No relevant results.":
+            if results:
+                base = results[0].raw_content or results[0].snippet or ""
+                results[0].raw_content = (base + "\n\n" + text).strip()
+            else:
+                results.append(SearchResult(
+                    title=query,
+                    url=_synthesis_url("anthropic", query),
+                    snippet=text[:1000],
+                    score=1.0,
+                    raw_content=text,
+                ))
 
         results = results[:max_results]
         fetched_at = datetime.now(timezone.utc).isoformat()
@@ -565,6 +570,13 @@ _PROVIDERS: dict[str, type] = {
 }
 
 
+def _wrap_logging(inner: WebSearchProvider, name: str) -> WebSearchProvider:
+    """Persist every search to MotherDuck `web_search_log` (best-effort)."""
+    from agents.research.search_log import LoggingSearchProvider
+
+    return LoggingSearchProvider(inner, provider_name=name)  # type: ignore[return-value]
+
+
 def get_search_provider(provider: Optional[str] = None) -> WebSearchProvider:
     """
     Return a configured web search provider.
@@ -572,6 +584,8 @@ def get_search_provider(provider: Optional[str] = None) -> WebSearchProvider:
     'auto' tries anthropic → openai → tavily (first one with credentials wins).
     If you have ANTHROPIC_API_KEY set, no other search credentials are needed.
     Raises SearchUnavailable if nothing is configured.
+
+    Every returned provider is wrapped so searches are written to web_search_log.
     """
     resolved = (provider or os.environ.get("PULSE_SEARCH_PROVIDER", "none")).lower().strip()
 
@@ -585,7 +599,7 @@ def get_search_provider(provider: Optional[str] = None) -> WebSearchProvider:
         errors = []
         for name in ("anthropic", "openai", "tavily"):
             try:
-                return _PROVIDERS[name]()
+                return _wrap_logging(_PROVIDERS[name](), name)
             except SearchUnavailable as exc:
                 errors.append(f"{name}: {exc}")
         raise SearchUnavailable(
@@ -598,7 +612,7 @@ def get_search_provider(provider: Optional[str] = None) -> WebSearchProvider:
             f"{sorted(_PROVIDERS.keys()) + ['auto']}."
         )
 
-    return _PROVIDERS[resolved]()
+    return _wrap_logging(_PROVIDERS[resolved](), resolved)
 
 
 def anthropic_search_configured() -> bool:

@@ -59,18 +59,26 @@ DEFAULT_GEOGRAPHIES = [
 #
 # Deliberately absent: directory and "investors list" queries. Those rank listicles,
 # which the harvest stage now penalises, so generating them wastes a search slot.
+#
+# Phrasing matters as much as targeting. These run against a model-driven web search
+# (Claude's web_search tool), not a keyword index, so Google operators are counter-
+# productive: the model reads `OR` and quoted phrases as literal text it must match
+# rather than as syntax. A measured A/B on the same entity returned 5 real citations
+# for `Afore Capital limited partners fund close` and 0 for
+# `"Afore Capital" "limited partners include" OR "investors include"`. Keep these as
+# plain descriptive noun phrases.
 DEFAULT_QUERY_TEMPLATES = [
     # Small-fund close announcements — the densest source of reachable LP names.
-    '{geo} venture fund "first close" "limited partners include" family office',
-    '{geo} "$20 million" OR "$30 million" OR "$50 million" venture fund close anchor LP',
-    '{geo} micro VC OR "pre-seed fund" close "backed by" family offices angel investors',
+    '{geo} venture fund first close limited partners include family offices',
+    '{geo} venture fund closed $20 million to $50 million anchor limited partners',
+    '{geo} micro VC pre-seed fund backed by family offices and angel investors',
     'first-time fund manager {geo} anchor investor family office commitment',
-    '{geo} venture fund announces close "with participation from" investors',
+    '{geo} venture fund announces close with participation from investors',
     # Mid-size institutions and fund-of-funds that allocate to first-time managers.
-    '{geo} "emerging manager program" venture capital allocation first-time fund',
-    '{geo} fund of funds "emerging managers" venture fund commitment',
+    '{geo} emerging manager program venture capital allocation first-time funds',
+    '{geo} fund of funds committing to emerging manager venture funds',
     # Single family offices and operator-LPs, who appear in no LP database.
-    '{geo} entrepreneur family office "limited partner" venture funds interview',
+    '{geo} entrepreneur family office limited partner in venture funds interview',
 ]
 
 
@@ -234,19 +242,23 @@ def queries_for_seed(
     geos = geographies or DEFAULT_GEOGRAPHIES
     stype, value = seed["seed_type"], seed["value"]
     if stype == "peer_fund":
-        # Both queries demand LP-DISCLOSING language. Without it, a peer-fund query
+        # Both queries lean on LP-DISCLOSING language. Without it, a peer-fund query
         # returns coverage of the fund's own fundraise — "Better Tomorrow Ventures
         # Raises $140M" from TechCrunch, Yahoo and PitchBook — which announces the
         # size and the thesis but names no LP. A measured run spent three of five
         # query slots on those articles and harvested nothing from them.
+        #
+        # Expressed as plain phrases, not Google operators: the quoted/OR form of
+        # these two queries returned zero results from Claude's web_search tool,
+        # while `<fund> limited partners fund close` returned five real citations.
         return [
-            f'"{value}" "limited partners include" OR "investors include"',
-            f'"{value}" fund "anchor investor" OR "backed by" family office LP',
+            f"{value} limited partners fund close",
+            f"{value} fund anchor investors and family offices backing it",
         ]
     if stype == "confirmed_lp":
         return [
-            f'"{value}" limited partner venture fund also backed',
-            f'"{value}" co-investor family office fund commitment',
+            f"{value} limited partner venture funds also backed",
+            f"{value} co-investor family office fund commitments",
         ]
     if stype == "query_template":
         # crc32, not hash(): Python randomizes string hashing per process, so

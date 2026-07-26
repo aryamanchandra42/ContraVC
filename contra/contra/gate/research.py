@@ -215,8 +215,8 @@ def _fanout_research(
         provider = get_search_provider()
     except SearchUnavailable as exc:
         raise RuntimeError(
-            "Web search required for contra gate. Set PULSE_SEARCH_PROVIDER=auto "
-            "with OPENAI_API_KEY, or PULSE_SEARCH_PROVIDER=tavily with TAVILY_API_KEY."
+            "Web search required for contra gate. Set PULSE_SEARCH_PROVIDER=anthropic "
+            "(ANTHROPIC_API_KEY) or openai / tavily with the matching key."
         ) from exc
 
     per_query = 6 if match_untrusted else 5
@@ -280,16 +280,19 @@ def search_lp(
     When match_untrusted=True, identity disambiguation is emphasized
     (wrong-person DB match).
     """
-    deep = _deep_research(
-        name, max_chars, screening_mode,
-        nfx_url=None, match_untrusted=match_untrusted,
-    )
-    if deep is not None:
-        return deep
-    return _fanout_research(
-        name, max_chars, screening_mode,
-        nfx_url=None, match_untrusted=match_untrusted,
-    )
+    from agents.research.search_log import search_context
+
+    with search_context("gate", investor_name=name):
+        deep = _deep_research(
+            name, max_chars, screening_mode,
+            nfx_url=None, match_untrusted=match_untrusted,
+        )
+        if deep is not None:
+            return deep
+        return _fanout_research(
+            name, max_chars, screening_mode,
+            nfx_url=None, match_untrusted=match_untrusted,
+        )
 
 
 def search_lp_with_nfx(
@@ -305,14 +308,17 @@ def search_lp_with_nfx(
     NFX-aware gate research — the investor's NFX Signal profile (if provided)
     is read as a priority source so the LLM sees their self-described mandate.
     """
-    deep = _deep_research(
-        name, max_chars, screening_mode,
-        nfx_url=nfx_url, match_untrusted=match_untrusted,
-        known_context=known_context,
-    )
-    if deep is not None:
-        return deep
-    return _fanout_research(
-        name, max_chars, screening_mode,
-        nfx_url=nfx_url, match_untrusted=match_untrusted,
-    )
+    from agents.research.search_log import search_context
+
+    with search_context("gate", investor_name=name):
+        deep = _deep_research(
+            name, max_chars, screening_mode,
+            nfx_url=nfx_url, match_untrusted=match_untrusted,
+            known_context=known_context,
+        )
+        if deep is not None:
+            return deep
+        return _fanout_research(
+            name, max_chars, screening_mode,
+            nfx_url=nfx_url, match_untrusted=match_untrusted,
+        )

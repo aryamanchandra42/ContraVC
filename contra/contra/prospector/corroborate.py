@@ -166,20 +166,26 @@ def _corroborate_one(
     Domains already seen during harvest are excluded outright — re-reading the
     discovery source cannot corroborate anything.
     """
+    from agents.research.search_log import search_context
     from agents.research.web_search import FetchError, SearchUnavailable, is_synthesis_url
+    from contra.prospector.budget import get_meter
 
     excluded: Set[str] = {d for d in cand.domains if d}
     if cand.source_domain:
         excluded.add(cand.source_domain)
 
+    meter = get_meter()
     results: List[Any] = []
-    for q in _queries(cand.name):
-        try:
-            results.extend(provider.search(q, max_results=per_query).results)
-        except (SearchUnavailable, FetchError) as exc:
-            logger.debug("Corroborate search failed (%s): %s", q, exc)
-        except Exception as exc:
-            logger.warning("Corroborate search error (%s): %s", q, exc)
+    with search_context("prospector", investor_name=cand.name):
+        for q in _queries(cand.name):
+            try:
+                results.extend(provider.search(q, max_results=per_query).results)
+                if meter is not None:
+                    meter.add_searches(1)
+            except (SearchUnavailable, FetchError) as exc:
+                logger.debug("Corroborate search failed (%s): %s", q, exc)
+            except Exception as exc:
+                logger.warning("Corroborate search error (%s): %s", q, exc)
 
     # Independent sources only, best-scoring first.
     fresh: List[Any] = []
@@ -212,6 +218,8 @@ def _corroborate_one(
             fetches += 1
             try:
                 page = provider.fetch(url) or ""
+                if meter is not None:
+                    meter.add_fetches(1)
             except (SearchUnavailable, FetchError):
                 page = ""
             except Exception:

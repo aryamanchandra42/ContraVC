@@ -46,22 +46,40 @@ def start_run(req: RunRequest) -> RunResponse:
     return RunResponse(run_id=run_id or "", started=not busy, detail=busy)
 
 
+_RUNS_SQL_WITH_COST = """
+    SELECT run_id, status, trigger, seeds_json, queries_used, results_seen,
+           docs_fetched, harvested, candidates_found, new_candidates,
+           resolved, preranked, corroborated, gated,
+           qualified, review, rejected, promoted, seeds_added, error,
+           search_calls, llm_calls, fetch_calls, gate_calls,
+           estimated_cost_usd, duration_sec, cost_json, current_stage,
+           search_ok, search_empty, search_errors, search_provider,
+           CAST(started_at AS VARCHAR) AS started_at,
+           CAST(completed_at AS VARCHAR) AS completed_at
+    FROM prospector_runs
+    ORDER BY started_at DESC
+    LIMIT ?
+"""
+
+_RUNS_SQL_LEGACY = """
+    SELECT run_id, status, trigger, seeds_json, queries_used, results_seen,
+           docs_fetched, harvested, candidates_found, new_candidates,
+           resolved, preranked, corroborated, gated,
+           qualified, review, rejected, promoted, seeds_added, error,
+           CAST(started_at AS VARCHAR) AS started_at,
+           CAST(completed_at AS VARCHAR) AS completed_at
+    FROM prospector_runs
+    ORDER BY started_at DESC
+    LIMIT ?
+"""
+
+
 @router.get("/prospector/runs")
 def list_runs(top: int = Query(20, ge=1, le=100), con=Depends(get_db)) -> List[Dict[str, Any]]:
-    rows = con.execute(
-        """
-        SELECT run_id, status, trigger, seeds_json, queries_used, results_seen,
-               docs_fetched, harvested, candidates_found, new_candidates,
-               resolved, preranked, corroborated, gated,
-               qualified, review, rejected, promoted, seeds_added, error,
-               CAST(started_at AS VARCHAR) AS started_at,
-               CAST(completed_at AS VARCHAR) AS completed_at
-        FROM prospector_runs
-        ORDER BY started_at DESC
-        LIMIT ?
-        """,
-        [top],
-    ).fetchall()
+    try:
+        rows = con.execute(_RUNS_SQL_WITH_COST, [top]).fetchall()
+    except Exception:
+        rows = con.execute(_RUNS_SQL_LEGACY, [top]).fetchall()
     from contra.prospector.scheduler import active_run_id
 
     cols = [d[0] for d in con.description]
@@ -69,13 +87,175 @@ def list_runs(top: int = Query(20, ge=1, le=100), con=Depends(get_db)) -> List[D
     out = []
     for r in rows:
         d = dict(zip(cols, r))
-        if isinstance(d.get("seeds_json"), str):
-            try:
-                d["seeds_json"] = json.loads(d["seeds_json"])
-            except json.JSONDecodeError:
-                pass
+        for field in ("seeds_json", "cost_json"):
+            if isinstance(d.get(field), str):
+                try:
+                    d[field] = json.loads(d[field])
+                except json.JSONDecodeError:
+                    pass
         d["active"] = d["run_id"] == active
         out.append(d)
+    return out
+
+
+@router.get("/prospector/search-log")
+def list_search_log(
+    top: int = Query(50, ge=1, le=500),
+    source: Optional[str] = Query(None, description="gate | prospector | discovery"),
+    con=Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Recent web searches persisted to MotherDuck (Anthropic / OpenAI / Tavily).
+
+    Past provider-dashboard usage cannot be backfilled — only searches after this
+    endpoint's deploy appear here.
+    """
+    try:
+        con.execute("SELECT 1 FROM web_search_log LIMIT 0")
+    except Exception:
+        return {
+            "total": 0,
+            "items": [],
+            "note": "web_search_log table not migrated yet — restart the API.",
+        }
+
+    where = ""
+    params: List[Any] = []
+    if source:
+        where = " WHERE source = ?"
+        params.append(source)
+    total = con.execute(
+        f"SELECT COUNT(*) FROM web_search_log{where}", params,
+    ).fetchone()[0]
+    rows = con.execute(
+        f"""
+        SELECT log_id, provider, source, query, result_count, urls_json,
+               cached, error, duration_ms, investor_name, run_id, session_id,
+               CAST(created_at AS VARCHAR) AS created_at
+        FROM web_search_log
+        {where}
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        params + [top],
+    ).fetchall()
+    cols = [d[0] for d in con.description]
+    items = []
+    for r in rows:
+        d = dict(zip(cols, r))
+        if isinstance(d.get("urls_json"), str):
+            try:
+                d["urls_json"] = json.loads(d["urls_json"])
+            except json.JSONDecodeError:
+                pass
+        items.append(d)
+    return {"total": int(total or 0), "items": items}
+
+
+@router.get("/prospector/activity")
+def miner_activity(con=Depends(get_db)) -> Dict[str, Any]:
+    """
+    Live miner visibility — last-run diagnosis, funnel death stage, drop reasons,
+    and spend caps. Use this when research is burning credits but CRM leads are empty.
+    """
+    from contra.prospector.activity import build_activity
+
+    return build_activity(con)
+
+
+@router.get("/prospector/costs")
+def cost_monitor(con=Depends(get_db)) -> Dict[str, Any]:
+    """
+    Spend monitor for LP mining — today vs recent runs, plus active caps.
+
+    estimated_cost_usd uses PROSPECTOR_COST_*_USD unit prices (not provider invoices).
+    Use this to see whether the miner is burning credits without promotions.
+    """
+    from contra.prospector.budget import (
+        autorun_block_reason,
+        consecutive_zero_yield_runs,
+        daily_spend_usd,
+        max_daily_cost_usd,
+        max_run_cost_usd,
+        max_runtime_seconds,
+        max_runs_per_day,
+        runs_started_today,
+        zero_yield_pause_runs,
+    )
+    from contra.prospector.scheduler import active_run_id
+
+    today_spend = daily_spend_usd(con)
+    today_runs = runs_started_today(con)
+    zero_streak = consecutive_zero_yield_runs(con)
+    block = autorun_block_reason(con)
+
+    recent = con.execute(
+        """
+        SELECT run_id, status, trigger, promoted, gated, queries_used,
+               search_calls, llm_calls, gate_calls,
+               estimated_cost_usd, duration_sec, error,
+               CAST(started_at AS VARCHAR) AS started_at,
+               CAST(completed_at AS VARCHAR) AS completed_at
+        FROM prospector_runs
+        ORDER BY started_at DESC
+        LIMIT 10
+        """
+    ).fetchall()
+    cols = [d[0] for d in con.description]
+    recent_runs = [dict(zip(cols, r)) for r in recent]
+
+    week = con.execute(
+        """
+        SELECT COALESCE(SUM(estimated_cost_usd), 0),
+               COALESCE(SUM(promoted), 0),
+               COUNT(*)
+        FROM prospector_runs
+        WHERE started_at >= CURRENT_DATE - INTERVAL 7 DAY
+        """
+    ).fetchone()
+
+    return {
+        "active_run_id": active_run_id(),
+        "today": {
+            "runs": today_runs,
+            "estimated_cost_usd": round(today_spend, 4),
+            "run_cap": max_runs_per_day(),
+            "cost_cap_usd": max_daily_cost_usd(),
+        },
+        "last_7_days": {
+            "estimated_cost_usd": round(float(week[0] or 0), 4),
+            "promoted": int(week[1] or 0),
+            "runs": int(week[2] or 0),
+        },
+        "caps": {
+            "max_runtime_sec": max_runtime_seconds(),
+            "max_run_cost_usd": max_run_cost_usd(),
+            "max_daily_cost_usd": max_daily_cost_usd(),
+            "max_runs_per_day": max_runs_per_day(),
+            "zero_yield_pause": zero_yield_pause_runs(),
+        },
+        "zero_yield_streak": zero_streak,
+        "scheduled_blocked": bool(block),
+        "scheduled_block_reason": block or None,
+        "recent_runs": recent_runs,
+    }
+
+
+@router.get("/prospector/candidate-counts")
+def candidate_counts(con=Depends(get_db)) -> Dict[str, int]:
+    """Per-status counts for the Candidates filter pills."""
+    out = {"all": 0, "review": 0, "qualified": 0, "promoted": 0, "rejected": 0, "dismissed": 0}
+    try:
+        rows = con.execute(
+            "SELECT status, COUNT(*) FROM prospector_candidates GROUP BY status"
+        ).fetchall()
+    except Exception:
+        return out
+    for status, n in rows:
+        key = (status or "").lower()
+        out["all"] += int(n or 0)
+        if key in out:
+            out[key] = int(n or 0)
     return out
 
 
@@ -88,7 +268,7 @@ def list_candidates(
     """Candidate queue with scorecards attached (batch join by name_key)."""
     from contra.scorecard import scorecards_for_keys
 
-    sql = """
+    sql_full = """
         SELECT CAST(candidate_id AS VARCHAR) AS candidate_id, investor_name, name_key,
                entity_type, geography, discovery_evidence, source_url, source_domain,
                run_id, status, verdict_reason,
@@ -100,15 +280,30 @@ def list_candidates(
         FROM prospector_candidates
         WHERE 1=1
     """
+    sql_legacy = """
+        SELECT CAST(candidate_id AS VARCHAR) AS candidate_id, investor_name, name_key,
+               entity_type, geography, discovery_evidence, source_url,
+               run_id, status, verdict_reason,
+               CAST(created_at AS VARCHAR) AS created_at,
+               CAST(updated_at AS VARCHAR) AS updated_at
+        FROM prospector_candidates
+        WHERE 1=1
+    """
     params: List[Any] = []
+    filter_sql = ""
     if status:
-        sql += " AND status = ?"
+        filter_sql = " AND status = ?"
         params.append(status)
-    # Best evidence first: corroborated candidates, then by prerank score.
-    sql += " ORDER BY corroborated DESC, prerank_score DESC NULLS LAST, updated_at DESC LIMIT ?"
-    params.append(top)
+    order_full = " ORDER BY corroborated DESC, prerank_score DESC NULLS LAST, updated_at DESC LIMIT ?"
+    order_legacy = " ORDER BY updated_at DESC LIMIT ?"
+    params_full = list(params) + [top]
 
-    rows = con.execute(sql, params).fetchall()
+    try:
+        rows = con.execute(sql_full + filter_sql + order_full, params_full).fetchall()
+    except Exception:
+        logger.warning("Cascade candidate columns unavailable; using legacy SELECT", exc_info=True)
+        rows = con.execute(sql_legacy + filter_sql + order_legacy, params_full).fetchall()
+
     cols = [d[0] for d in con.description]
     items = [dict(zip(cols, r)) for r in rows]
 
@@ -120,7 +315,11 @@ def list_candidates(
                 except json.JSONDecodeError:
                     item[field] = None
 
-    cards = scorecards_for_keys(con, [i["name_key"] for i in items])
+    try:
+        cards = scorecards_for_keys(con, [i["name_key"] for i in items])
+    except Exception:
+        logger.warning("scorecards_for_keys failed", exc_info=True)
+        cards = {}
     for item in items:
         sc = cards.get(item["name_key"])
         item["scorecard"] = sc.to_api_dict() if sc else None

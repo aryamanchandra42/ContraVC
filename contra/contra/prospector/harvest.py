@@ -208,27 +208,26 @@ def _doc_score(result: Any) -> int:
 
 def _get_provider():
     """
-    Tavily first for mining, then Anthropic, then whatever is configured.
+    Anthropic first (same key as Gate), then OpenAI, then Tavily if present.
 
-    This inverts the default preference used elsewhere in the codebase, for a
-    reason specific to the cascade. Tavily returns many REAL urls per query with
-    `raw_content` already populated, whereas the Anthropic and OpenAI providers
-    return a single synthesized answer and only sometimes parse citations out of
-    it. Three consequences, all of which matter here:
+    Tavily used to be preferred for dense URL lists + raw_content, but it is
+    optional. Without it, Claude's built-in web_search still returns citation
+    URLs plus a synthesized brief that Stage 1 can extract LP names from.
 
-      - recall: an observed run issuing 4 queries against Anthropic produced
-        exactly 4 results, one synthesis each, versus a page of real links
-      - cost: raw_content arriving with the search result removes the separate
-        fetch that Stage 1 would otherwise pay for
-      - independence: a synthesis has no domain, and Stage 4's whole test is
-        whether a DIFFERENT domain confirms the claim
-
-    PROSPECTOR_SEARCH_PROVIDER overrides the order for a single provider.
+    PROSPECTOR_SEARCH_PROVIDER forces a single provider.
     """
     from agents.research.web_search import SearchUnavailable, get_search_provider
 
     forced = os.environ.get("PROSPECTOR_SEARCH_PROVIDER", "").strip().lower()
-    order = [forced] if forced else ["tavily", "anthropic", None]
+    if forced:
+        order = [forced]
+    else:
+        order = ["anthropic", "openai"]
+        # Only try Tavily when a key is configured — a dead/expired key used to
+        # win the factory check then return 0 hits for every query.
+        if os.environ.get("TAVILY_API_KEY", "").strip():
+            order.append("tavily")
+        order.append(None)  # PULSE_SEARCH_PROVIDER / auto
 
     errors = []
     for name in order:
@@ -237,34 +236,56 @@ def _get_provider():
         except SearchUnavailable as exc:
             errors.append(f"{name or 'configured'}: {exc}")
     raise SearchUnavailable(
-        "No search provider for Prospector. Set TAVILY_API_KEY (best for mining) "
-        "or ANTHROPIC_API_KEY. " + " | ".join(errors)
+        "No search provider for Prospector. Set ANTHROPIC_API_KEY "
+        "(PULSE_SEARCH_PROVIDER=anthropic) or OPENAI_API_KEY. "
+        + " | ".join(errors)
     )
 
 
-def _parallel_search(provider, queries: List[str], per_query: int, max_workers: int) -> List[Any]:
-    """Run queries in parallel and merge, deduping by URL."""
+def _parallel_search(
+    provider, queries: List[str], per_query: int, max_workers: int,
+) -> Tuple[List[Any], Dict[str, int]]:
+    """Run queries in parallel and merge, deduping by URL.
+
+    Returns (unique_results, search_stats) where search_stats tracks how many
+    queries returned hits vs failed — so a run with queries_used>0 and
+    results_seen=0 is diagnosable as a search-provider failure, not an empty web.
+    """
     from agents.research.web_search import FetchError, SearchUnavailable
 
     provider_name = (getattr(provider, "provider", "") or type(provider).__name__).lower()
     workers = 2 if "anthropic" in provider_name else max_workers
 
     results: List[Any] = []
+    search_stats = {
+        "search_ok": 0,
+        "search_empty": 0,
+        "search_errors": 0,
+        "search_provider": provider_name,
+    }
 
-    def _one(q: str) -> List[Any]:
+    def _one(q: str) -> Tuple[List[Any], str]:
         try:
-            return provider.search(q, max_results=per_query).results
+            hits = provider.search(q, max_results=per_query).results or []
+            return hits, "ok" if hits else "empty"
         except (SearchUnavailable, FetchError) as exc:
-            logger.debug("Harvest search failed (%s): %s", q, exc)
-            return []
+            logger.warning("Harvest search failed (%s): %s", q, exc)
+            return [], "error"
         except Exception as exc:
             logger.warning("Harvest search error (%s): %s", q, exc)
-            return []
+            return [], "error"
 
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futures = [pool.submit(_one, q) for q in queries]
         for fut in as_completed(futures):
-            results.extend(fut.result())
+            hits, outcome = fut.result()
+            results.extend(hits)
+            if outcome == "ok":
+                search_stats["search_ok"] += 1
+            elif outcome == "empty":
+                search_stats["search_empty"] += 1
+            else:
+                search_stats["search_errors"] += 1
 
     seen: Set[str] = set()
     unique: List[Any] = []
@@ -273,7 +294,20 @@ def _parallel_search(provider, queries: List[str], per_query: int, max_workers: 
         if url and url not in seen:
             seen.add(url)
             unique.append(r)
-    return unique
+
+    if not unique and queries:
+        logger.error(
+            "Harvest search returned 0 results across %s queries "
+            "(provider=%s ok=%s empty=%s errors=%s). %s",
+            len(queries), provider_name,
+            search_stats["search_ok"], search_stats["search_empty"],
+            search_stats["search_errors"],
+            "Every query raised — check search provider credentials."
+            if search_stats["search_errors"] and not search_stats["search_empty"]
+            else "The provider answered but found nothing — the queries are too "
+                 "narrow for this provider.",
+        )
+    return unique, search_stats
 
 
 def _document_text(provider, result: Any, max_chars: int) -> str:
@@ -480,13 +514,27 @@ def harvest(
     """
     from agents.research.llm_client import get_llm_client
 
-    stats = {"results_seen": 0, "docs_fetched": 0, "harvested": 0}
+    stats = {
+        "results_seen": 0, "docs_fetched": 0, "harvested": 0,
+        "search_ok": 0, "search_empty": 0, "search_errors": 0,
+        "search_provider": "",
+    }
     if not queries:
         return [], stats
 
+    from agents.research.search_log import search_context
+    from contra.prospector.budget import get_meter
+
     provider = _get_provider()
-    results = _parallel_search(provider, queries, per_query, max_workers)
+    meter = get_meter()
+    if meter is not None:
+        meter.add_searches(len(queries))
+    with search_context("prospector", seed=seed_label):
+        results, search_stats = _parallel_search(
+            provider, queries, per_query, max_workers,
+        )
     stats["results_seen"] = len(results)
+    stats.update(search_stats)
     if not results:
         return [], stats
 
@@ -502,19 +550,28 @@ def harvest(
 
     llm = get_llm_client()
 
-    def _one(result: Any) -> Tuple[bool, List[Candidate]]:
-        """(document was readable, mentions found)."""
+    def _one(result: Any) -> Tuple[bool, bool, List[Candidate]]:
+        """(document was readable, paid a separate fetch, mentions found)."""
+        from agents.research.web_search import is_synthesis_url
+
+        inline = (getattr(result, "raw_content", None) or getattr(result, "snippet", "") or "")
+        url = getattr(result, "url", "") or ""
+        paid_fetch = (
+            not is_synthesis_url(url)
+            and len(inline) < 2500
+        )
         document = _document_text(provider, result, doc_max_chars)
         if len(document) < 200:
-            return False, []
-        return True, _extract_from_document(llm, result, document, seed_label)
+            return False, paid_fetch, []
+        mentions = _extract_from_document(llm, result, document, seed_label)
+        return True, paid_fetch, mentions
 
     batches: List[List[Candidate]] = []
     with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(chosen)))) as pool:
         futures = [pool.submit(_one, r) for r in chosen]
         for fut in as_completed(futures):
             try:
-                readable, batch = fut.result()
+                readable, paid_fetch, batch = fut.result()
             except Exception as exc:
                 logger.warning("Harvest document task failed: %s", exc)
                 continue
@@ -524,6 +581,10 @@ def harvest(
             # different problems with different fixes.
             if readable:
                 stats["docs_fetched"] += 1
+                if meter is not None:
+                    meter.add_llm(1)
+                    if paid_fetch:
+                        meter.add_fetches(1)
             if batch:
                 batches.append(batch)
 

@@ -108,6 +108,9 @@ def _run_migrations(con: duckdb.DuckDBPyConnection) -> None:
         migrate_lead_scorecards,
         migrate_prospector,
         migrate_prospector_cascade,
+        migrate_prospector_cost,
+        migrate_prospector_search_diag,
+        migrate_web_search_log,
         migrate_outreach_log,
     )
     migrate_icp_scores_v41(con)
@@ -124,6 +127,9 @@ def _run_migrations(con: duckdb.DuckDBPyConnection) -> None:
     migrate_lead_scorecards(con)
     migrate_prospector(con)
     migrate_prospector_cascade(con)
+    migrate_prospector_cost(con)
+    migrate_prospector_search_diag(con)
+    migrate_web_search_log(con)
     migrate_outreach_log(con)
 
 

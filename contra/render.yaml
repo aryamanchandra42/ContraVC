@@ -15,12 +15,24 @@ services:
       - key: PULSE_LLM_AUTO_SWITCH
         value: "true"
       - key: PULSE_SEARCH_PROVIDER
-        value: tavily
+        value: anthropic
+      # Tavily optional — miner/gate use Claude web_search when unset
       # Production hardening — set secrets in the Render dashboard
       - key: CORS_DEV_REGEX
         value: "0"
       - key: PROSPECTOR_AUTORUN
         value: "false"
+      # Cap LP-miner wall time + estimated spend (see GET /api/prospector/costs)
+      - key: PROSPECTOR_MAX_RUNTIME_SEC
+        value: "600"
+      - key: PROSPECTOR_MAX_RUN_COST_USD
+        value: "3"
+      - key: PROSPECTOR_MAX_DAILY_COST_USD
+        value: "8"
+      - key: PROSPECTOR_MAX_RUNS_PER_DAY
+        value: "4"
+      - key: PROSPECTOR_ZERO_YIELD_PAUSE
+        value: "3"
       - key: CONSOLE_PASSWORD
         sync: false
       - key: ANTHROPIC_API_KEY

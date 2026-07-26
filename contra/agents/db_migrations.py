@@ -764,6 +764,124 @@ def migrate_prospector_cascade(con) -> bool:
     return ran
 
 
+def migrate_prospector_cost(con) -> bool:
+    """
+    Add cost / duration columns to prospector_runs for spend monitoring.
+
+    search_calls / llm_calls / fetch_calls / gate_calls — billable unit counts
+    estimated_cost_usd — rough USD using PROSPECTOR_COST_*_USD unit prices
+    duration_sec — wall-clock length of the run
+    cost_json — full meter snapshot (unit prices + counts) for audit
+
+    Safe to re-run: ADD COLUMN IF NOT EXISTS.
+    """
+    if not _table_exists(con, "prospector_runs"):
+        return False
+
+    existing = {
+        r[0] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'prospector_runs'"
+        ).fetchall()
+    }
+    ran = False
+    for col, ddl in [
+        ("search_calls", "INTEGER DEFAULT 0"),
+        ("llm_calls", "INTEGER DEFAULT 0"),
+        ("fetch_calls", "INTEGER DEFAULT 0"),
+        ("gate_calls", "INTEGER DEFAULT 0"),
+        ("estimated_cost_usd", "DOUBLE DEFAULT 0"),
+        ("duration_sec", "DOUBLE DEFAULT 0"),
+        ("cost_json", "JSON"),
+        ("current_stage", "VARCHAR"),  # live progress: harvest|resolve|…|gate
+    ]:
+        if col not in existing:
+            con.execute(
+                f"ALTER TABLE prospector_runs ADD COLUMN IF NOT EXISTS {col} {ddl}"
+            )
+            ran = True
+    return ran
+
+
+def migrate_prospector_search_diag(con) -> bool:
+    """
+    Add per-run search outcome columns to prospector_runs.
+
+    `results_seen = 0` has three very different causes — the provider raised on
+    every query, the provider answered but found nothing, or no query ran — and
+    they need opposite fixes. Without these counts a dead run is indistinguishable
+    from a misconfigured host, which is exactly how 13 consecutive zero-lead runs
+    went undiagnosed.
+
+    Safe to re-run: ADD COLUMN IF NOT EXISTS.
+    """
+    if not _table_exists(con, "prospector_runs"):
+        return False
+
+    existing = {
+        r[0] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'prospector_runs'"
+        ).fetchall()
+    }
+    ran = False
+    for col, ddl in [
+        ("search_ok", "INTEGER DEFAULT 0"),       # queries that returned >=1 result
+        ("search_empty", "INTEGER DEFAULT 0"),    # queries the provider answered with nothing
+        ("search_errors", "INTEGER DEFAULT 0"),   # queries that raised
+        ("search_provider", "VARCHAR"),
+    ]:
+        if col not in existing:
+            con.execute(
+                f"ALTER TABLE prospector_runs ADD COLUMN IF NOT EXISTS {col} {ddl}"
+            )
+            ran = True
+    return ran
+
+
+def migrate_web_search_log(con) -> bool:
+    """
+    Add web_search_log — audit trail for every Anthropic/OpenAI/Tavily search.
+
+    Without this, provider dashboards show spend (e.g. 809 web searches) but the
+    app has no recoverable record of what was queried or which URLs came back.
+    Gate sessions only hold web_context in memory for ~30 minutes.
+    """
+    if _table_exists(con, "web_search_log"):
+        return False
+    con.execute(
+        """
+        CREATE TABLE web_search_log (
+            log_id          VARCHAR PRIMARY KEY,
+            provider        VARCHAR NOT NULL,
+            source          VARCHAR NOT NULL DEFAULT 'unknown',
+                -- gate | prospector | discovery | other
+            query           VARCHAR NOT NULL,
+            result_count    INTEGER NOT NULL DEFAULT 0,
+            urls_json       JSON,
+            cached          BOOLEAN NOT NULL DEFAULT FALSE,
+            error           VARCHAR,
+            duration_ms     DOUBLE,
+            max_results     INTEGER,
+            investor_name   VARCHAR,
+            run_id          VARCHAR,
+            session_id      VARCHAR,
+            meta_json       JSON,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_web_search_log_created "
+        "ON web_search_log(created_at)"
+    )
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_web_search_log_source "
+        "ON web_search_log(source)"
+    )
+    return True
+
+
 def migrate_outreach_log(con) -> bool:
     """
     Add outreach_log — the historical record of who we already emailed.

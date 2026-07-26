@@ -10,6 +10,10 @@ Env:
   PROSPECTOR_INTERVAL_HOURS  24 (default)     — hours between scheduled runs
   PROSPECTOR_BOOT_DELAY_SEC  180 (default)    — wait after API start before
                                                 the first scheduled run
+  PROSPECTOR_MAX_RUNTIME_SEC 600              — wall-clock abort per run
+  PROSPECTOR_MAX_RUNS_PER_DAY 4               — daily start cap (scheduled)
+  PROSPECTOR_MAX_DAILY_COST_USD 8             — estimated daily spend cap
+  PROSPECTOR_ZERO_YIELD_PAUSE 3               — pause after N zero-promote runs
 """
 
 from __future__ import annotations
@@ -47,9 +51,20 @@ def try_start_run(
 
     `con` must outlive this call — the run keeps using a cursor derived from it
     for minutes. Pass the process-shared connection, never a per-request cursor.
+
+    Scheduled starts also honour daily run/cost caps and the zero-yield pause
+    (see budget.autorun_block_reason). Manual starts only check the busy slot.
     """
     global _active_run_id
     from contra.prospector import run_prospector
+
+    if trigger == "scheduled":
+        from contra.prospector.budget import autorun_block_reason
+
+        blocked = autorun_block_reason(con)
+        if blocked:
+            logger.warning("Scheduled mining skipped: %s", blocked)
+            return None, blocked
 
     with _lock:
         if _active_run_id is not None:
