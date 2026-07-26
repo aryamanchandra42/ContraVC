@@ -410,6 +410,9 @@ class AnthropicWebSearchProvider:
         "claude-sonnet-4-6",
         "claude-opus-4-5",
     )
+    _RETIRED_SEARCH_MODELS = frozenset({
+        "claude-3-5-sonnet-20241022",
+    })
 
     def __init__(self) -> None:
         api_key = (
@@ -428,21 +431,39 @@ class AnthropicWebSearchProvider:
                 "anthropic package is not installed. Run: pip install anthropic"
             ) from exc
         self._client = self._anthropic.Anthropic(api_key=api_key)
-        self.model = (
-            os.environ.get("ANTHROPIC_SEARCH_MODEL", "").strip()
-            or self._SEARCH_MODELS[0]
-        )
+        configured = os.environ.get("ANTHROPIC_SEARCH_MODEL", "").strip()
+        if configured in self._RETIRED_SEARCH_MODELS:
+            logger.warning(
+                "ANTHROPIC_SEARCH_MODEL=%r is retired — using %r instead. "
+                "Remove or update this env var on the host.",
+                configured,
+                self._SEARCH_MODELS[0],
+            )
+            configured = ""
+        self.model = configured or self._SEARCH_MODELS[0]
 
     # -- internal ----------------------------------------------------------
 
-    def _messages_with_search(self, prompt: str) -> tuple[str, List[dict]]:
-        """Run a Messages API call with web_search_20250305; return (text, citations)."""
-        resp = self._client.messages.create(
-            model=self.model,
-            max_tokens=2048,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
-            messages=[{"role": "user", "content": prompt}],
-        )
+    @classmethod
+    def _search_model_candidates(cls, preferred: str) -> List[str]:
+        """Ordered models to try — preferred first, then known search-capable fallbacks."""
+        candidates: List[str] = []
+        if preferred and preferred not in cls._RETIRED_SEARCH_MODELS:
+            candidates.append(preferred)
+        for model in cls._SEARCH_MODELS:
+            if model not in candidates:
+                candidates.append(model)
+        return candidates
+
+    @staticmethod
+    def _is_model_not_found(exc: BaseException) -> bool:
+        msg = str(exc).lower()
+        if "not_found" in msg or "not found" in msg or "404" in msg:
+            return True
+        status = getattr(exc, "status_code", None)
+        return status == 404
+
+    def _parse_search_response(self, resp: object) -> tuple[str, List[dict]]:
         text_parts: List[str] = []
         citations: List[dict] = []
 
@@ -451,7 +472,6 @@ class AnthropicWebSearchProvider:
             if block_type == "text":
                 raw_text = getattr(block, "text", "") or ""
                 text_parts.append(raw_text)
-                # Extract URL citations embedded in text blocks
                 for ann in getattr(block, "citations", None) or []:
                     url = getattr(ann, "url", "") or ""
                     title = getattr(ann, "title", "") or url
@@ -460,6 +480,42 @@ class AnthropicWebSearchProvider:
                         citations.append({"url": url, "title": title, "snippet": cited})
 
         return "\n".join(text_parts).strip(), citations
+
+    def _messages_with_search(self, prompt: str) -> tuple[str, List[dict]]:
+        """Run a Messages API call with web_search_20250305; return (text, citations)."""
+        candidates = self._search_model_candidates(self.model)
+        last_exc: Optional[BaseException] = None
+
+        for model in candidates:
+            try:
+                resp = self._client.messages.create(
+                    model=model,
+                    max_tokens=2048,
+                    tools=[{"type": "web_search_20250305", "name": "web_search"}],
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            except Exception as exc:
+                if self._is_model_not_found(exc) and model != candidates[-1]:
+                    logger.warning(
+                        "Anthropic web search model %r unavailable (%s) — trying next fallback",
+                        model,
+                        exc,
+                    )
+                    last_exc = exc
+                    continue
+                raise
+
+            if model != self.model:
+                logger.info(
+                    "Anthropic web search switched model %r → %r",
+                    self.model,
+                    model,
+                )
+                self.model = model
+            return self._parse_search_response(resp)
+
+        assert last_exc is not None
+        raise last_exc
 
     def research(self, prompt: str) -> tuple[str, List[dict]]:
         """Public single-call research: returns (synthesized text, url citations)."""

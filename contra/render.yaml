@@ -16,6 +16,9 @@ services:
         value: "true"
       - key: PULSE_SEARCH_PROVIDER
         value: anthropic
+      # claude-3-5-sonnet-20241022 was retired — do not set an old ANTHROPIC_SEARCH_MODEL in the dashboard
+      - key: ANTHROPIC_SEARCH_MODEL
+        value: claude-sonnet-4-6
       # Tavily optional — miner/gate use Claude web_search when unset
       # Production hardening — set secrets in the Render dashboard
       - key: CORS_DEV_REGEX
